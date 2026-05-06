@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'providers/feed_provider.dart';
 import 'providers/settings_provider.dart';
@@ -20,6 +21,7 @@ class FeedReminderApp extends StatefulWidget {
 
 class _FeedReminderAppState extends State<FeedReminderApp> {
   int _currentIndex = 0;
+  bool _initialWakelockChecked = false;
 
   final List<Widget> _screens = const [
     HomeScreen(),
@@ -76,21 +78,45 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
     );
   }
 
+  void _updateWakelock(int pageIndex, bool wakelockEnabled, FeedProvider feedProvider) async {
+    final shouldEnable = pageIndex == 0 && wakelockEnabled && feedProvider.lastFeedTime != null;
+    if (shouldEnable) {
+      print('[Wakelock] ENABLE - pageIndex=$pageIndex, wakelockEnabled=$wakelockEnabled, hasFeedRecord=${feedProvider.lastFeedTime != null}');
+      await WakelockPlus.enable();
+    } else {
+      print('[Wakelock] DISABLE - pageIndex=$pageIndex, wakelockEnabled=$wakelockEnabled, hasFeedRecord=${feedProvider.lastFeedTime != null}');
+      await WakelockPlus.disable();
+    }
+  }
+
   Widget _buildMainScreen() {
-    return Scaffold(
-      body: PageView(
-        controller: PageController(initialPage: _currentIndex),
-        onPageChanged: (index) {
-          setState(() => _currentIndex = index);
-        },
-        children: _screens,
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(_screens.length, (index) => _buildDot(index)),
-        ),
-      ),
+    return Consumer2<SettingsProvider, FeedProvider>(
+      builder: (context, settingsProvider, feedProvider, child) {
+        // Initial wakelock check on first build
+        if (!_initialWakelockChecked) {
+          _initialWakelockChecked = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _updateWakelock(_currentIndex, settingsProvider.wakelockEnabled, feedProvider);
+          });
+        }
+
+        return Scaffold(
+          body: PageView(
+            controller: PageController(initialPage: _currentIndex),
+            onPageChanged: (index) {
+              setState(() => _currentIndex = index);
+              _updateWakelock(index, settingsProvider.wakelockEnabled, feedProvider);
+            },
+            children: _screens,
+          ),
+          bottomNavigationBar: SafeArea(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(_screens.length, (index) => _buildDot(index)),
+            ),
+          ),
+        );
+      },
     );
   }
 
