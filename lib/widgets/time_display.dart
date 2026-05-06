@@ -6,11 +6,7 @@ class TimeDisplay extends StatelessWidget {
   final Duration timeElapsed;
   final DateTime? lastFeedTime;
 
-  const TimeDisplay({
-    super.key,
-    required this.timeElapsed,
-    this.lastFeedTime,
-  });
+  const TimeDisplay({super.key, required this.timeElapsed, this.lastFeedTime});
 
   @override
   Widget build(BuildContext context) {

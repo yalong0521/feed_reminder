@@ -78,8 +78,7 @@ class StorageService {
   // Sound settings
   Future<bool> getSoundEnabled() async {
     final prefs = await _prefsSafe;
-    return prefs.getBool(StorageKeys.soundEnabled) ??
-        AppDefaults.soundEnabled;
+    return prefs.getBool(StorageKeys.soundEnabled) ?? AppDefaults.soundEnabled;
   }
 
   Future<void> setSoundEnabled(bool enabled) async {

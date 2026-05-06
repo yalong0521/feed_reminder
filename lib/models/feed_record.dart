@@ -2,10 +2,7 @@ class FeedRecord {
   final DateTime time;
   final Duration? intervalFromPrevious;
 
-  FeedRecord({
-    required this.time,
-    this.intervalFromPrevious,
-  });
+  FeedRecord({required this.time, this.intervalFromPrevious});
 
   Map<String, dynamic> toJson() {
     return {

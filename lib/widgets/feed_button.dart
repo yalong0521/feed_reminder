@@ -100,8 +100,8 @@ class _FeedButtonState extends State<FeedButton>
                         colors: _isCompleted
                             ? [AppColors.green, AppColors.green]
                             : [
-                                AppColors.pink.withOpacity(0.3),
-                                AppColors.orange.withOpacity(0.3),
+                                AppColors.pink.withValues(alpha: 0.3),
+                                AppColors.orange.withValues(alpha: 0.3),
                               ],
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
@@ -151,7 +151,7 @@ class _FeedButtonState extends State<FeedButton>
                         BoxShadow(
                           color:
                               (_isCompleted ? AppColors.green : AppColors.pink)
-                                  .withOpacity(0.4),
+                                  .withValues(alpha: 0.4),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),

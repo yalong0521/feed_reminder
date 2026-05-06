@@ -139,7 +139,7 @@ class SettingsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -173,7 +173,7 @@ class SettingsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -184,10 +184,7 @@ class SettingsScreen extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 16,
-              color: AppColors.textPrimary,
-            ),
+            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
           ),
           Switch(
             value: value,
@@ -213,7 +210,7 @@ class SettingsScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -224,10 +221,7 @@ class SettingsScreen extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 16,
-              color: AppColors.textPrimary,
-            ),
+            style: const TextStyle(fontSize: 16, color: AppColors.textPrimary),
           ),
           TextButton(
             onPressed: () async {

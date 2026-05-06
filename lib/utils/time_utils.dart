@@ -7,7 +7,9 @@ class TimeUtils {
   }
 
   static String formatTime(DateTime time) {
-    final hour = time.hour > 12 ? time.hour - 12 : (time.hour == 0 ? 12 : time.hour);
+    final hour = time.hour > 12
+        ? time.hour - 12
+        : (time.hour == 0 ? 12 : time.hour);
     final period = time.hour >= 12 ? 'PM' : 'AM';
     final minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute $period';
@@ -43,7 +45,8 @@ class TimeUtils {
 
     final startParts = startTime.split(':');
     final endParts = endTime.split(':');
-    final startMinutes = int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
+    final startMinutes =
+        int.parse(startParts[0]) * 60 + int.parse(startParts[1]);
     final endMinutes = int.parse(endParts[0]) * 60 + int.parse(endParts[1]);
 
     if (startMinutes > endMinutes) {

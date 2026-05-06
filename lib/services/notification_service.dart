@@ -9,7 +9,9 @@ class NotificationService {
   Future<void> init() async {
     if (_initialized) return;
 
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
 
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
@@ -36,9 +38,7 @@ class NotificationService {
         macOS: macOSSettings,
       );
     } else {
-      initSettings = const InitializationSettings(
-        android: androidSettings,
-      );
+      initSettings = const InitializationSettings(android: androidSettings);
     }
 
     await _notifications.initialize(initSettings);
@@ -47,25 +47,23 @@ class NotificationService {
 
   Future<void> requestPermissions() async {
     if (Platform.isAndroid) {
-      final android = _notifications.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      final android = _notifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
       await android?.requestNotificationsPermission();
     } else if (Platform.isIOS) {
-      final ios = _notifications.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      await ios?.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      final ios = _notifications
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      await ios?.requestPermissions(alert: true, badge: true, sound: true);
     } else if (Platform.isMacOS) {
-      final macOS = _notifications.resolvePlatformSpecificImplementation<
-          MacOSFlutterLocalNotificationsPlugin>();
-      await macOS?.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      final macOS = _notifications
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >();
+      await macOS?.requestPermissions(alert: true, badge: true, sound: true);
     }
   }
 
@@ -106,12 +104,7 @@ class NotificationService {
       details = const NotificationDetails(android: androidDetails);
     }
 
-    await _notifications.show(
-      0,
-      '喂奶时间到了！',
-      '宝宝该喂奶了 🍼',
-      details,
-    );
+    await _notifications.show(0, '喂奶时间到了！', '宝宝该喂奶了 🍼', details);
   }
 
   Future<void> cancelAll() async {

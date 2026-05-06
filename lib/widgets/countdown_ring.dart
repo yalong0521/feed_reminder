@@ -76,9 +76,13 @@ class _CountdownRingState extends State<CountdownRing>
       builder: (context, child) {
         return Transform.scale(
           scale: widget.state != FeedState.normal ? _pulseAnimation.value : 1.0,
-          child: SizedBox(
+          child: Container(
             width: size,
             height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+            ),
             child: CustomPaint(
               painter: _RainbowRingPainter(
                 progress: _calculateProgress(),
@@ -96,6 +100,8 @@ class _CountdownRingState extends State<CountdownRing>
   double _calculateProgress() {
     final totalSeconds = widget.feedIntervalMinutes * 60;
     final elapsedSeconds = widget.timeElapsed.inSeconds;
+    // In alerting state, always show 100%
+    if (widget.state == FeedState.alerting) return 1.0;
     if (elapsedSeconds >= totalSeconds) return 1.0;
     return elapsedSeconds / totalSeconds;
   }
@@ -155,25 +161,18 @@ class _RainbowRingPainter extends CustomPainter {
 
     // Background ring
     final bgPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.2)
+      ..color = Colors.grey.withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = AppDimensions.ringStrokeWidth
       ..strokeCap = StrokeCap.round;
 
     canvas.drawCircle(center, radius, bgPaint);
 
-    // White inner circle with shadow for depth effect
-    final innerCirclePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-    canvas.drawCircle(center, radius - AppDimensions.ringStrokeWidth / 2, innerCirclePaint);
-
     // Rainbow arc - full 360 degree gradient
     final rect = Rect.fromCircle(center: center, radius: radius);
     final gradient = SweepGradient(
       startAngle: 0,
-      endAngle: math.pi  *2,
+      endAngle: math.pi * 2,
       colors: AppColors.rainbowGradient,
     );
 

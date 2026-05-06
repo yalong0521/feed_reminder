@@ -32,10 +32,7 @@ class HistoryScreen extends StatelessWidget {
             return const Center(
               child: Text(
                 '还没有喂奶记录',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: AppColors.textLight,
-                ),
+                style: TextStyle(fontSize: 16, color: AppColors.textLight),
               ),
             );
           }
@@ -44,7 +41,12 @@ class HistoryScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             itemCount: records.length,
             itemBuilder: (context, index) {
-              return _buildDismissibleItem(context, feedProvider, records, index);
+              return _buildDismissibleItem(
+                context,
+                feedProvider,
+                records,
+                index,
+              );
             },
           );
         },
@@ -70,10 +72,7 @@ class HistoryScreen extends StatelessWidget {
           color: Colors.red,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Icon(
-          Icons.delete,
-          color: Colors.white,
-        ),
+        child: const Icon(Icons.delete, color: Colors.white),
       ),
       onDismissed: (direction) {
         feedProvider.deleteFeedRecord(index);
@@ -97,7 +96,7 @@ class HistoryScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -132,7 +131,7 @@ class HistoryScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.green.withOpacity(0.3),
+                color: AppColors.green.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(

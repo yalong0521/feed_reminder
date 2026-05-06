@@ -14,15 +14,15 @@ class AppColors {
 
   static const List<Color> rainbowGradient = [
     pink,
-    Color(0xFFFFB5C2),  // pink
+    Color(0xFFFFB5C2), // pink
     orange,
-    Color(0xFFFFCBA4),  // orange
+    Color(0xFFFFCBA4), // orange
     yellow,
-    Color(0xFFFFE5A0),  // yellow
+    Color(0xFFFFE5A0), // yellow
     green,
-    Color(0xFFB5EAD7),  // green
+    Color(0xFFB5EAD7), // green
     blue,
-    Color(0xFFA8D8EA),  // blue
+    Color(0xFFA8D8EA), // blue
     pink,
   ];
 }

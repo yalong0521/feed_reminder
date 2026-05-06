@@ -70,7 +70,6 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
             seedColor: AppColors.pink,
             surface: AppColors.background,
           ),
-          useMaterial3: true,
           fontFamily: 'SF Pro Display',
         ),
         home: _buildMainScreen(),
@@ -78,8 +77,13 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
     );
   }
 
-  void _updateWakelock(int pageIndex, bool wakelockEnabled, FeedProvider feedProvider) async {
-    final shouldEnable = pageIndex == 0 && wakelockEnabled && feedProvider.lastFeedTime != null;
+  void _updateWakelock(
+    int pageIndex,
+    bool wakelockEnabled,
+    FeedProvider feedProvider,
+  ) async {
+    final shouldEnable =
+        pageIndex == 0 && wakelockEnabled && feedProvider.lastFeedTime != null;
     if (shouldEnable) {
       await WakelockPlus.enable();
     } else {
@@ -94,7 +98,11 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
         if (!_initialWakelockChecked) {
           _initialWakelockChecked = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _updateWakelock(_currentIndex, settingsProvider.wakelockEnabled, feedProvider);
+            _updateWakelock(
+              _currentIndex,
+              settingsProvider.wakelockEnabled,
+              feedProvider,
+            );
           });
         }
 
@@ -104,14 +112,21 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
             controller: PageController(initialPage: _currentIndex),
             onPageChanged: (index) {
               setState(() => _currentIndex = index);
-              _updateWakelock(index, settingsProvider.wakelockEnabled, feedProvider);
+              _updateWakelock(
+                index,
+                settingsProvider.wakelockEnabled,
+                feedProvider,
+              );
             },
             children: _screens,
           ),
           bottomNavigationBar: SafeArea(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_screens.length, (index) => _buildDot(index)),
+              children: List.generate(
+                _screens.length,
+                (index) => _buildDot(index),
+              ),
             ),
           ),
         );
@@ -127,7 +142,9 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
       width: isActive ? 24 : 8,
       height: 8,
       decoration: BoxDecoration(
-        color: isActive ? AppColors.pink : AppColors.textLight.withOpacity(0.3),
+        color: isActive
+            ? AppColors.pink
+            : AppColors.textLight.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(4),
       ),
     );

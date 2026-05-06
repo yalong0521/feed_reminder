@@ -41,9 +41,9 @@ class FeedProvider extends ChangeNotifier {
     required StorageService storage,
     required AudioService audioService,
     required NotificationService notificationService,
-  })  : _storage = storage,
-        _audioService = audioService,
-        _notificationService = notificationService {
+  }) : _storage = storage,
+       _audioService = audioService,
+       _notificationService = notificationService {
     _initialize();
   }
 
@@ -79,8 +79,9 @@ class FeedProvider extends ChangeNotifier {
       _timeRemaining = Duration(minutes: _feedIntervalMinutes);
       _timeElapsed = Duration.zero;
     } else {
-      final nextFeedTime =
-          _lastFeedTime!.add(Duration(minutes: _feedIntervalMinutes));
+      final nextFeedTime = _lastFeedTime!.add(
+        Duration(minutes: _feedIntervalMinutes),
+      );
       final now = DateTime.now();
 
       if (now.isAfter(nextFeedTime)) {
