@@ -4,8 +4,9 @@ import '../utils/constants.dart';
 
 class FeedButton extends StatefulWidget {
   final VoidCallback onPressed;
+  final VoidCallback? onSuccess;
 
-  const FeedButton({super.key, required this.onPressed});
+  const FeedButton({super.key, required this.onPressed, this.onSuccess});
 
   @override
   State<FeedButton> createState() => _FeedButtonState();
@@ -45,6 +46,7 @@ class _FeedButtonState extends State<FeedButton>
     if (_dragPosition >= maxWidth) {
       setState(() => _isCompleted = true);
       widget.onPressed();
+      widget.onSuccess?.call();
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
           _reset();

@@ -1,3 +1,4 @@
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/feed_provider.dart';
@@ -8,8 +9,27 @@ import '../widgets/time_display.dart';
 import '../utils/constants.dart';
 import '../services/audio_service.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late ConfettiController _confettiController;
+
+  @override
+  void initState() {
+    super.initState();
+    _confettiController = ConfettiController(duration: const Duration(seconds: 1));
+  }
+
+  @override
+  void dispose() {
+    _confettiController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,31 +37,55 @@ class HomeScreen extends StatelessWidget {
       builder: (context, feedProvider, settingsProvider, child) {
         final isAlerting = feedProvider.state == FeedState.alerting;
 
-        return Scaffold(
-          backgroundColor: isAlerting
-              ? AppColors.accent.withOpacity(0.1)
-              : AppColors.background,
-          body: SafeArea(
-            child: OrientationBuilder(
-              builder: (context, orientation) {
-                if (orientation == Orientation.landscape) {
-                  return _buildLandscapeLayout(
-                    context,
-                    feedProvider,
-                    settingsProvider,
-                    isAlerting,
-                  );
-                } else {
-                  return _buildPortraitLayout(
-                    context,
-                    feedProvider,
-                    settingsProvider,
-                    isAlerting,
-                  );
-                }
-              },
+        return Stack(
+          children: [
+            Scaffold(
+              backgroundColor: isAlerting
+                  ? AppColors.accent.withAlpha(25)
+                  : AppColors.background,
+              body: SafeArea(
+                child: OrientationBuilder(
+                  builder: (context, orientation) {
+                    if (orientation == Orientation.landscape) {
+                      return _buildLandscapeLayout(
+                        context,
+                        feedProvider,
+                        settingsProvider,
+                        isAlerting,
+                      );
+                    } else {
+                      return _buildPortraitLayout(
+                        context,
+                        feedProvider,
+                        settingsProvider,
+                        isAlerting,
+                      );
+                    }
+                  },
+                ),
+              ),
             ),
-          ),
+            // Confetti overlay
+            Align(
+              alignment: Alignment.topCenter,
+              child: ConfettiWidget(
+                confettiController: _confettiController,
+                blastDirectionality: BlastDirectionality.explosive,
+                particleDrag: 0.05,
+                emissionFrequency: 0.05,
+                numberOfParticles: 30,
+                gravity: 0.2,
+                shouldLoop: false,
+                colors: const [
+                  AppColors.pink,
+                  AppColors.orange,
+                  AppColors.yellow,
+                  AppColors.green,
+                  AppColors.blue,
+                ],
+              ),
+            ),
+          ],
         );
       },
     );
@@ -97,7 +141,7 @@ class HomeScreen extends StatelessWidget {
                 ),
               // Feed Button
               Padding(
-                padding: EdgeInsets.only(bottom:  16),
+                padding: const EdgeInsets.only(bottom: 16),
                 child: FeedButton(
                   onPressed: () async {
                     await feedProvider.recordFeed();
@@ -110,6 +154,7 @@ class HomeScreen extends StatelessWidget {
                       soundLoopEnabled: settingsProvider.soundLoopEnabled,
                     );
                   },
+                  onSuccess: () => _confettiController.play(),
                 ),
               ),
             ],
@@ -187,6 +232,7 @@ class HomeScreen extends StatelessWidget {
                       soundLoopEnabled: settingsProvider.soundLoopEnabled,
                     );
                   },
+                  onSuccess: () => _confettiController.play(),
                 ),
               ],
             ),
