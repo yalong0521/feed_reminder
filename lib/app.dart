@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import 'providers/feed_provider.dart';
 import 'providers/settings_provider.dart';
-import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
-import 'services/storage_service.dart';
 import 'services/audio_service.dart';
 import 'services/notification_service.dart';
+import 'services/storage_service.dart';
 import 'utils/constants.dart';
 
 class FeedReminderApp extends StatefulWidget {
@@ -30,23 +31,21 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        Provider<StorageService>(
-          create: (_) => StorageService(),
-        ),
-        Provider<AudioService>(
-          create: (_) => AudioService(),
-        ),
-        Provider<NotificationService>(
-          create: (_) => NotificationService(),
-        ),
+        Provider<StorageService>(create: (_) => StorageService()),
+        Provider<AudioService>(create: (_) => AudioService()),
+        Provider<NotificationService>(create: (_) => NotificationService()),
         ChangeNotifierProxyProvider<StorageService, SettingsProvider>(
           create: (context) =>
               SettingsProvider(storage: context.read<StorageService>()),
           update: (context, storage, previous) =>
               previous ?? SettingsProvider(storage: storage),
         ),
-        ChangeNotifierProxyProvider3<StorageService, AudioService,
-            NotificationService, FeedProvider>(
+        ChangeNotifierProxyProvider3<
+          StorageService,
+          AudioService,
+          NotificationService,
+          FeedProvider
+        >(
           create: (context) => FeedProvider(
             storage: context.read<StorageService>(),
             audioService: context.read<AudioService>(),
@@ -84,15 +83,12 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
         onPageChanged: (index) {
           setState(() => _currentIndex = index);
         },
-        children:_screens ,
+        children: _screens,
       ),
       bottomNavigationBar: SafeArea(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            _screens.length,
-            (index) => _buildDot(index),
-          ),
+          children: List.generate(_screens.length, (index) => _buildDot(index)),
         ),
       ),
     );
@@ -102,7 +98,7 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
     final isActive = index == _currentIndex;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.symmetric(horizontal: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
       width: isActive ? 24 : 8,
       height: 8,
       decoration: BoxDecoration(

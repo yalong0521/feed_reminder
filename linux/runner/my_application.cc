@@ -52,14 +52,12 @@ static void my_application_activate(GApplication* application) {
     gtk_window_set_title(window, "feed_reminder");
   }
 
-  // Set window size for tablet-like experience
+  // Set window size constraints for tablet-like experience
   gtk_window_set_default_size(window, 450, 800);
   GdkGeometry geometry;
   geometry.min_width = 400;
   geometry.min_height = 700;
-  geometry.max_width = 600;
-  geometry.max_height = 900;
-  gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE);
+  gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
