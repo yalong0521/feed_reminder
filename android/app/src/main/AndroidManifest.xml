@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="feed_reminder"
+        android:label="喂奶提醒"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
