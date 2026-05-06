@@ -29,7 +29,7 @@ class AppColors {
 
 class AppDimensions {
   static const double ringSize = 0.75; // 75% of screen width
-  static const double ringStrokeWidth = 20.0;
+  static const double ringStrokeWidth = 24.0;
   static const double buttonRadius = 30.0;
   static const double buttonHeight = 60.0;
 }

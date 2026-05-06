@@ -27,7 +27,7 @@ class TimeDisplay extends StatelessWidget {
         const SizedBox(height: 8),
         if (lastFeedTime != null)
           Text(
-            '${AppStrings.lastFeed}: ${TimeUtils.formatTime(lastFeedTime!)}',
+            '${AppStrings.lastFeed}: ${_formatLastFeedTime(lastFeedTime!)}',
             style: const TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
@@ -36,5 +36,17 @@ class TimeDisplay extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  String _formatLastFeedTime(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dateOnly = DateTime(time.year, time.month, time.day);
+
+    if (dateOnly == today) {
+      return TimeUtils.formatTime(time);
+    } else {
+      return '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')} ${TimeUtils.formatTime(time)}';
+    }
   }
 }

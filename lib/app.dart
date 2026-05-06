@@ -81,10 +81,8 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
   void _updateWakelock(int pageIndex, bool wakelockEnabled, FeedProvider feedProvider) async {
     final shouldEnable = pageIndex == 0 && wakelockEnabled && feedProvider.lastFeedTime != null;
     if (shouldEnable) {
-      print('[Wakelock] ENABLE - pageIndex=$pageIndex, wakelockEnabled=$wakelockEnabled, hasFeedRecord=${feedProvider.lastFeedTime != null}');
       await WakelockPlus.enable();
     } else {
-      print('[Wakelock] DISABLE - pageIndex=$pageIndex, wakelockEnabled=$wakelockEnabled, hasFeedRecord=${feedProvider.lastFeedTime != null}');
       await WakelockPlus.disable();
     }
   }
@@ -101,6 +99,7 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
         }
 
         return Scaffold(
+          extendBody: true,
           body: PageView(
             controller: PageController(initialPage: _currentIndex),
             onPageChanged: (index) {

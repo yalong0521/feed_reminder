@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import '../utils/constants.dart';
+
 import '../providers/feed_provider.dart';
+import '../utils/constants.dart';
 
 class CountdownRing extends StatefulWidget {
   final Duration timeRemaining;
@@ -73,9 +75,7 @@ class _CountdownRingState extends State<CountdownRing>
       animation: Listenable.merge([_colorController, _pulseController]),
       builder: (context, child) {
         return Transform.scale(
-          scale: widget.state != FeedState.normal
-              ? _pulseAnimation.value
-              : 1.0,
+          scale: widget.state != FeedState.normal ? _pulseAnimation.value : 1.0,
           child: SizedBox(
             width: size,
             height: size,
@@ -85,9 +85,7 @@ class _CountdownRingState extends State<CountdownRing>
                 colorAnimation: _colorController.value,
                 state: widget.state,
               ),
-              child: Center(
-                child: _buildTimeDisplay(),
-              ),
+              child: Center(child: _buildTimeDisplay()),
             ),
           ),
         );
@@ -117,10 +115,7 @@ class _CountdownRingState extends State<CountdownRing>
       mainAxisSize: MainAxisSize.min,
       children: [
         if (widget.state == FeedState.alerting)
-          const Text(
-            '🔔',
-            style: TextStyle(fontSize: 32),
-          ),
+          const Text('🔔', style: TextStyle(fontSize: 32)),
         Text(
           _formatTime(widget.timeRemaining),
           style: TextStyle(
@@ -167,50 +162,41 @@ class _RainbowRingPainter extends CustomPainter {
 
     canvas.drawCircle(center, radius, bgPaint);
 
+    // White inner circle with shadow for depth effect
+    final innerCirclePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+    canvas.drawCircle(center, radius - AppDimensions.ringStrokeWidth / 2, innerCirclePaint);
+
     // Rainbow arc - full 360 degree gradient
     final rect = Rect.fromCircle(center: center, radius: radius);
     final gradient = SweepGradient(
       startAngle: 0,
-      endAngle: math.pi * 2,
-      colors: _getColors(),
-      tileMode: TileMode.clamp,
+      endAngle: math.pi  *2,
+      colors: AppColors.rainbowGradient,
     );
 
     final arcPaint = Paint()
-      ..shader = gradient.createShader(rect)
       ..style = PaintingStyle.stroke
       ..strokeWidth = AppDimensions.ringStrokeWidth
       ..strokeCap = StrokeCap.round;
 
-    // Apply opacity for night mode / alerting
+    // In alerting state, show solid color and stop animation (progress frozen at 100%)
     if (state == FeedState.alerting) {
       arcPaint.color = AppColors.accent;
+    } else {
+      arcPaint.shader = gradient.createShader(rect);
     }
 
     final sweepAngle = 2 * math.pi * progress;
     canvas.drawArc(
       rect,
-      -math.pi / 2,  // Start at top
+      -math.pi / 2, // Start at top
       sweepAngle,
       false,
       arcPaint,
     );
-  }
-
-  List<Color> _getColors() {
-    if (state == FeedState.alerting) {
-      return [
-        AppColors.accent,
-        AppColors.accent,
-      ];
-    }
-    if (state == FeedState.warning) {
-      return [
-        AppColors.orange,
-        AppColors.yellow,
-      ];
-    }
-    return AppColors.rainbowGradient;
   }
 
   @override

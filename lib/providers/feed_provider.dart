@@ -90,6 +90,12 @@ class FeedProvider extends ChangeNotifier {
         _timeRemaining = nextFeedTime.difference(now);
         _timeElapsed = now.difference(_lastFeedTime!);
       }
+
+      // Clamp to prevent negative values if device time is wrong
+      if (_timeElapsed.isNegative) {
+        _timeElapsed = Duration.zero;
+        _timeRemaining = Duration(minutes: _feedIntervalMinutes);
+      }
     }
 
     _updateState();

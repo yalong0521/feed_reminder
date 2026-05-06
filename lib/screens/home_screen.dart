@@ -8,6 +8,7 @@ import '../widgets/feed_button.dart';
 import '../widgets/time_display.dart';
 import '../utils/constants.dart';
 import '../services/audio_service.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -130,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton(
                   onPressed: () {
                     context.read<AudioService>().stopReminder();
+                    context.read<NotificationService>().cancelAll();
                   },
                   child: const Text(
                     '🔇 停止提醒',
@@ -141,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               // Feed Button
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 child: FeedButton(
                   onPressed: () async {
                     await feedProvider.recordFeed();
