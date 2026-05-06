@@ -53,61 +53,69 @@ class HomeScreen extends StatelessWidget {
     SettingsProvider settingsProvider,
     bool isAlerting,
   ) {
-    return Column(
-      children: [
-        const Spacer(),
-        // Countdown Ring - wrapped in FittedBox to handle small heights
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: CountdownRing(
-            timeRemaining: feedProvider.timeRemaining,
-            timeElapsed: feedProvider.timeElapsed,
-            feedIntervalMinutes: feedProvider.feedIntervalMinutes,
-            state: feedProvider.state,
-          ),
-        ),
-        const SizedBox(height: 24),
-        // Time Display
-        TimeDisplay(
-          timeElapsed: feedProvider.timeElapsed,
-          lastFeedTime: feedProvider.lastFeedTime,
-        ),
-        const Spacer(),
-        // Stop sound button (when alerting)
-        if (isAlerting)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: TextButton(
-              onPressed: () {
-                context.read<AudioService>().stopReminder();
-              },
-              child: const Text(
-                '🔇 停止提醒',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: AppColors.accent,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final ringSize = constraints.maxHeight * 0.45;
+        final verticalPadding = 40.0;
+        final spacing = 24.0;
+
+        return Padding(
+          padding: EdgeInsets.symmetric(vertical: verticalPadding),
+          child: Column(
+            children: [
+              // Countdown Ring
+              SizedBox(
+                width: ringSize,
+                height: ringSize,
+                child: CountdownRing(
+                  timeRemaining: feedProvider.timeRemaining,
+                  timeElapsed: feedProvider.timeElapsed,
+                  feedIntervalMinutes: feedProvider.feedIntervalMinutes,
+                  state: feedProvider.state,
                 ),
               ),
-            ),
+              SizedBox(height: spacing),
+              // Time Display
+              TimeDisplay(
+                timeElapsed: feedProvider.timeElapsed,
+                lastFeedTime: feedProvider.lastFeedTime,
+              ),
+              const Spacer(),
+              // Stop sound button (when alerting)
+              if (isAlerting)
+                TextButton(
+                  onPressed: () {
+                    context.read<AudioService>().stopReminder();
+                  },
+                  child: const Text(
+                    '🔇 停止提醒',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ),
+              // Feed Button
+              Padding(
+                padding: EdgeInsets.only(bottom:  16),
+                child: FeedButton(
+                  onPressed: () async {
+                    await feedProvider.recordFeed();
+                    settingsProvider.updateSettings(
+                      feedIntervalMinutes: settingsProvider.feedIntervalMinutes,
+                      nightModeEnabled: settingsProvider.nightModeEnabled,
+                      nightStartTime: settingsProvider.nightStartTime,
+                      nightEndTime: settingsProvider.nightEndTime,
+                      soundEnabled: settingsProvider.soundEnabled,
+                      soundLoopEnabled: settingsProvider.soundLoopEnabled,
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        // Feed Button
-        Padding(
-          padding: const EdgeInsets.only(bottom: 40),
-          child: FeedButton(
-            onPressed: () async {
-              await feedProvider.recordFeed();
-              settingsProvider.updateSettings(
-                feedIntervalMinutes: settingsProvider.feedIntervalMinutes,
-                nightModeEnabled: settingsProvider.nightModeEnabled,
-                nightStartTime: settingsProvider.nightStartTime,
-                nightEndTime: settingsProvider.nightEndTime,
-                soundEnabled: settingsProvider.soundEnabled,
-                soundLoopEnabled: settingsProvider.soundLoopEnabled,
-              );
-            },
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -118,7 +126,7 @@ class HomeScreen extends StatelessWidget {
     bool isAlerting,
   ) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final ringSize = screenWidth * 0.35;
+    final ringSize = screenWidth * 0.4;
 
     return Row(
       children: [

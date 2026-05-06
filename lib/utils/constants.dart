@@ -36,7 +36,7 @@ class AppDimensions {
 
 class AppStrings {
   static const String appName = '喂奶提醒';
-  static const String recordFeed = '🍼 记录喂奶';
+  static const String recordFeed = '🍼 滑动记录喂奶';
   static const String lastFeed = '上次喂奶';
   static const String timeElapsed = '已过去';
   static const String history = '📋 喂奶记录';
