@@ -142,20 +142,34 @@ class FeedProvider extends ChangeNotifier {
 
   Future<void> recordFeed() async {
     final now = DateTime.now();
+    await _addFeedRecordWithTime(now);
+  }
 
+  Future<void> addFeedRecordWithTime(DateTime time) async {
+    await _addFeedRecordWithTime(time);
+  }
+
+  Future<void> _addFeedRecordWithTime(DateTime time) async {
     // Calculate interval from previous feed
     Duration? interval;
     if (_lastFeedTime != null) {
-      interval = now.difference(_lastFeedTime!);
+      interval = time.difference(_lastFeedTime!);
     }
 
     // Save record
-    final record = FeedRecord(time: now, intervalFromPrevious: interval);
+    final record = FeedRecord(time: time, intervalFromPrevious: interval);
     await _storage.addFeedRecord(record);
-    await _storage.setLastFeedTime(now);
+    await _storage.setLastFeedTime(time);
 
-    // Update local history
-    _feedHistory.insert(0, record);
+    // Insert in correct position (sorted by time descending, newest first)
+    int insertIndex = _feedHistory.length;
+    for (int i = 0; i < _feedHistory.length; i++) {
+      if (time.isAfter(_feedHistory[i].time)) {
+        insertIndex = i;
+        break;
+      }
+    }
+    _feedHistory.insert(insertIndex, record);
     if (_feedHistory.length > 100) {
       _feedHistory.removeRange(100, _feedHistory.length);
     }
@@ -164,7 +178,7 @@ class FeedProvider extends ChangeNotifier {
     await _audioService.stopReminder();
 
     // Update state
-    _lastFeedTime = now;
+    _lastFeedTime = time;
     _hasTriggeredAlert = false;
     _timeRemaining = Duration(minutes: _feedIntervalMinutes);
     _timeElapsed = Duration.zero;

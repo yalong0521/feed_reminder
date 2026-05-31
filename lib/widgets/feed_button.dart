@@ -5,8 +5,14 @@ import '../utils/constants.dart';
 class FeedButton extends StatefulWidget {
   final VoidCallback onPressed;
   final VoidCallback? onSuccess;
+  final Orientation orientation;
 
-  const FeedButton({super.key, required this.onPressed, this.onSuccess});
+  const FeedButton({
+    super.key,
+    required this.onPressed,
+    this.onSuccess,
+    required this.orientation,
+  });
 
   @override
   State<FeedButton> createState() => _FeedButtonState();
@@ -69,19 +75,25 @@ class _FeedButtonState extends State<FeedButton>
     });
   }
 
+  double get _buttonWidth => 70;
+
   @override
   Widget build(BuildContext context) {
+    final isLandscape = widget.orientation == Orientation.landscape;
+    final buttonHeight = AppDimensions.buttonHeight;
+    final buttonRadius = AppDimensions.buttonRadius;
+
     return Container(
       width: double.infinity,
-      height: AppDimensions.buttonHeight,
-      margin: const EdgeInsets.symmetric(horizontal: 40),
+      height: buttonHeight,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(
         color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(AppDimensions.buttonRadius),
+        borderRadius: BorderRadius.circular(buttonRadius),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final maxWidth = constraints.maxWidth - 70;
+          final maxWidth = constraints.maxWidth - _buttonWidth;
           final progress = (_dragPosition / maxWidth).clamp(0.0, 1.0);
 
           return Stack(
@@ -91,11 +103,9 @@ class _FeedButtonState extends State<FeedButton>
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Container(
-                    width: _dragPosition + 70,
+                    width: _dragPosition + _buttonWidth,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(
-                        AppDimensions.buttonRadius,
-                      ),
+                      borderRadius: BorderRadius.circular(buttonRadius),
                       gradient: LinearGradient(
                         colors: _isCompleted
                             ? [AppColors.green, AppColors.green]
@@ -135,7 +145,7 @@ class _FeedButtonState extends State<FeedButton>
                   onHorizontalDragEnd: (details) =>
                       _onDragEnd(details, maxWidth),
                   child: Container(
-                    width: 70,
+                    width: _buttonWidth,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: _isCompleted
@@ -144,9 +154,7 @@ class _FeedButtonState extends State<FeedButton>
                         begin: Alignment.centerLeft,
                         end: Alignment.centerRight,
                       ),
-                      borderRadius: BorderRadius.circular(
-                        AppDimensions.buttonRadius,
-                      ),
+                      borderRadius: BorderRadius.circular(buttonRadius),
                       boxShadow: [
                         BoxShadow(
                           color:
@@ -161,7 +169,7 @@ class _FeedButtonState extends State<FeedButton>
                       child: Icon(
                         _isCompleted ? Icons.check : Icons.arrow_forward,
                         color: Colors.white,
-                        size: 28,
+                        size: isLandscape ? 32 : 28,
                       ),
                     ),
                   ),

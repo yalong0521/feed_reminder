@@ -61,7 +61,7 @@ class AppDefaults {
   static const String nightEndTime = '06:00';
   static const bool soundEnabled = true;
   static const bool soundLoopEnabled = true;
-  static const bool wakelockEnabled = true;
+  static const bool burnInProtectionEnabled = true;
 }
 
 class StorageKeys {
@@ -72,6 +72,6 @@ class StorageKeys {
   static const String nightEndTime = 'nightEndTime';
   static const String soundEnabled = 'soundEnabled';
   static const String soundLoopEnabled = 'soundLoopEnabled';
-  static const String wakelockEnabled = 'wakelockEnabled';
   static const String feedHistory = 'feedHistory';
+  static const String burnInProtectionEnabled = 'burnInProtectionEnabled';
 }

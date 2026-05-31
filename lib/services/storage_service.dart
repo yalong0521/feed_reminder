@@ -97,18 +97,6 @@ class StorageService {
     await prefs.setBool(StorageKeys.soundLoopEnabled, enabled);
   }
 
-  // Wakelock
-  Future<bool> getWakelockEnabled() async {
-    final prefs = await _prefsSafe;
-    return prefs.getBool(StorageKeys.wakelockEnabled) ??
-        AppDefaults.wakelockEnabled;
-  }
-
-  Future<void> setWakelockEnabled(bool enabled) async {
-    final prefs = await _prefsSafe;
-    await prefs.setBool(StorageKeys.wakelockEnabled, enabled);
-  }
-
   // Feed history
   Future<List<FeedRecord>> getFeedHistory() async {
     final prefs = await _prefsSafe;
@@ -135,5 +123,17 @@ class StorageService {
       history.removeRange(100, history.length);
     }
     await setFeedHistory(history);
+  }
+
+  // Burn-in protection
+  Future<bool> getBurnInProtectionEnabled() async {
+    final prefs = await _prefsSafe;
+    return prefs.getBool(StorageKeys.burnInProtectionEnabled) ??
+        AppDefaults.burnInProtectionEnabled;
+  }
+
+  Future<void> setBurnInProtectionEnabled(bool enabled) async {
+    final prefs = await _prefsSafe;
+    await prefs.setBool(StorageKeys.burnInProtectionEnabled, enabled);
   }
 }

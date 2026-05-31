@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -65,6 +66,13 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
       child: MaterialApp(
         title: AppStrings.appName,
         debugShowCheckedModeBanner: false,
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: AppColors.pink,
@@ -77,13 +85,8 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
     );
   }
 
-  void _updateWakelock(
-    int pageIndex,
-    bool wakelockEnabled,
-    FeedProvider feedProvider,
-  ) async {
-    final shouldEnable =
-        pageIndex == 0 && wakelockEnabled && feedProvider.lastFeedTime != null;
+  void _updateWakelock(int pageIndex, FeedProvider feedProvider) async {
+    final shouldEnable = pageIndex == 0 && feedProvider.lastFeedTime != null;
     if (shouldEnable) {
       await WakelockPlus.enable();
     } else {
@@ -98,11 +101,7 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
         if (!_initialWakelockChecked) {
           _initialWakelockChecked = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _updateWakelock(
-              _currentIndex,
-              settingsProvider.wakelockEnabled,
-              feedProvider,
-            );
+            _updateWakelock(_currentIndex, feedProvider);
           });
         }
 
@@ -112,11 +111,7 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
             controller: PageController(initialPage: _currentIndex),
             onPageChanged: (index) {
               setState(() => _currentIndex = index);
-              _updateWakelock(
-                index,
-                settingsProvider.wakelockEnabled,
-                feedProvider,
-              );
+              _updateWakelock(index, feedProvider);
             },
             children: _screens,
           ),

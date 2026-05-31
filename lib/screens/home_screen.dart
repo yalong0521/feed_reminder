@@ -25,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   OverlayEntry? _dimOverlayEntry;
 
   bool _isDimmed = false;
+  bool _burnInProtectionEnabled = true;
   DateTime _lastInteraction = DateTime.now();
   static const _dimTimeout = Duration(seconds: 30);
   int _burnInOffsetIndex = 0;
@@ -62,14 +63,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _startDimTimer() {
     Future.delayed(const Duration(seconds: 3), () {
       if (!mounted) return;
-      if (_isDimmed) {
+      if (_isDimmed && _burnInProtectionEnabled) {
         setState(() {
           _burnInOffsetIndex = (_burnInOffsetIndex + 1) % _burnInOffsets.length;
         });
         _dimOverlayEntry?.markNeedsBuild();
       }
       final elapsed = DateTime.now().difference(_lastInteraction);
-      if (elapsed >= _dimTimeout && !_isDimmed) {
+      if (elapsed >= _dimTimeout && !_isDimmed && _burnInProtectionEnabled) {
         _showDimScreen();
       }
       _startDimTimer();
@@ -143,6 +144,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Consumer2<FeedProvider, SettingsProvider>(
       builder: (context, feedProvider, settingsProvider, child) {
+        // Sync burn-in protection setting
+        if (_burnInProtectionEnabled !=
+            settingsProvider.burnInProtectionEnabled) {
+          _burnInProtectionEnabled = settingsProvider.burnInProtectionEnabled;
+          if (!_burnInProtectionEnabled) {
+            _burnInOffsetIndex = 0;
+          }
+        }
+
         final isAlerting = feedProvider.state == FeedState.alerting;
 
         return GestureDetector(
@@ -267,6 +277,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     );
                   },
                   onSuccess: () => _confettiController.play(),
+                  orientation: Orientation.portrait,
                 ),
               ),
             ],
@@ -342,6 +353,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   );
                 },
                 onSuccess: () => _confettiController.play(),
+                orientation: Orientation.landscape,
               ),
             ],
           ),

@@ -74,6 +74,17 @@ class SettingsScreen extends StatelessWidget {
               ],
               const SizedBox(height: 24),
 
+              // Display Section
+              _buildSectionTitle('显示设置'),
+              _buildSwitchTile(
+                title: '防烧屏保护',
+                value: settings.burnInProtectionEnabled,
+                onChanged: (value) {
+                  settings.setBurnInProtectionEnabled(value);
+                },
+              ),
+              const SizedBox(height: 24),
+
               // Reminder Section
               _buildSectionTitle('提醒设置'),
               _buildSwitchTile(
@@ -94,16 +105,6 @@ class SettingsScreen extends StatelessWidget {
                   },
                 ),
               const SizedBox(height: 24),
-
-              // Other Section
-              _buildSectionTitle('其他'),
-              _buildSwitchTile(
-                title: AppStrings.keepScreenOn,
-                value: settings.wakelockEnabled,
-                onChanged: (value) {
-                  settings.setWakelockEnabled(value);
-                },
-              ),
             ],
           ),
         );
@@ -233,6 +234,14 @@ class SettingsScreen extends StatelessWidget {
               final picked = await showTimePicker(
                 context: context,
                 initialTime: initialTime,
+                builder: (context, child) {
+                  return MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(alwaysUse24HourFormat: true),
+                    child: child!,
+                  );
+                },
               );
               if (picked != null) {
                 final newTime =

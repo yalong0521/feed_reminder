@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+
 import '../services/storage_service.dart';
 import '../utils/constants.dart';
 
@@ -11,15 +12,21 @@ class SettingsProvider extends ChangeNotifier {
   String _nightEndTime = AppDefaults.nightEndTime;
   bool _soundEnabled = AppDefaults.soundEnabled;
   bool _soundLoopEnabled = AppDefaults.soundLoopEnabled;
-  bool _wakelockEnabled = AppDefaults.wakelockEnabled;
+  bool _burnInProtectionEnabled = AppDefaults.burnInProtectionEnabled;
 
   int get feedIntervalMinutes => _feedIntervalMinutes;
+
   bool get nightModeEnabled => _nightModeEnabled;
+
   String get nightStartTime => _nightStartTime;
+
   String get nightEndTime => _nightEndTime;
+
   bool get soundEnabled => _soundEnabled;
+
   bool get soundLoopEnabled => _soundLoopEnabled;
-  bool get wakelockEnabled => _wakelockEnabled;
+
+  bool get burnInProtectionEnabled => _burnInProtectionEnabled;
 
   SettingsProvider({required StorageService storage}) : _storage = storage {
     _initialize();
@@ -32,7 +39,7 @@ class SettingsProvider extends ChangeNotifier {
     _nightEndTime = await _storage.getNightEndTime();
     _soundEnabled = await _storage.getSoundEnabled();
     _soundLoopEnabled = await _storage.getSoundLoopEnabled();
-    _wakelockEnabled = await _storage.getWakelockEnabled();
+    _burnInProtectionEnabled = await _storage.getBurnInProtectionEnabled();
     notifyListeners();
   }
 
@@ -72,9 +79,9 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setWakelockEnabled(bool enabled) async {
-    _wakelockEnabled = enabled;
-    await _storage.setWakelockEnabled(enabled);
+  Future<void> setBurnInProtectionEnabled(bool enabled) async {
+    _burnInProtectionEnabled = enabled;
+    await _storage.setBurnInProtectionEnabled(enabled);
     notifyListeners();
   }
 
@@ -85,6 +92,7 @@ class SettingsProvider extends ChangeNotifier {
     String? nightEndTime,
     bool? soundEnabled,
     bool? soundLoopEnabled,
+    bool? burnInProtectionEnabled,
   }) async {
     if (feedIntervalMinutes != null) {
       await setFeedInterval(feedIntervalMinutes);
@@ -103,6 +111,9 @@ class SettingsProvider extends ChangeNotifier {
     }
     if (soundLoopEnabled != null) {
       await setSoundLoopEnabled(soundLoopEnabled);
+    }
+    if (burnInProtectionEnabled != null) {
+      await setBurnInProtectionEnabled(burnInProtectionEnabled);
     }
   }
 
