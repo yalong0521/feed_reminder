@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'widgets/app_surface.dart';
@@ -74,7 +75,19 @@ class _FeedReminderAppState extends State<FeedReminderApp>
       _syncSettings();
       _syncWakelock();
     });
-    if (widget.enablePlatformEffects) unawaited(_initializeNotifications());
+    if (widget.enablePlatformEffects) {
+      unawaited(_initializeSystemUi());
+      unawaited(_initializeNotifications());
+    }
+  }
+
+  Future<void> _initializeSystemUi() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } catch (error) {
+      debugPrint('System bar configuration unavailable: $error');
+    }
   }
 
   Future<void> _initializeNotifications() async {
@@ -189,9 +202,13 @@ class _FeedReminderAppState extends State<FeedReminderApp>
                 (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
                     .copyWith(
                       statusBarColor: Colors.transparent,
-                      systemNavigationBarColor: dark
-                          ? AppPalette.dark.background
-                          : AppPalette.light.background,
+                      systemNavigationBarColor: Colors.transparent,
+                      systemNavigationBarDividerColor: Colors.transparent,
+                      systemNavigationBarIconBrightness: dark
+                          ? Brightness.light
+                          : Brightness.dark,
+                      systemNavigationBarContrastEnforced: false,
+                      systemStatusBarContrastEnforced: false,
                     ),
             child: child!,
           );

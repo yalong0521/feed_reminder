@@ -114,6 +114,74 @@ Color _solidSurfaceColor(WidgetTester tester, Finder surface) => tester
     )
     .color!;
 
+void _expectTransparentSystemBars(
+  WidgetTester tester, {
+  required Size size,
+  required Brightness backgroundBrightness,
+}) {
+  // Inspect the style submitted from the painted layer tree, not just the
+  // AnnotatedRegion widget: both system-inset sample points must be covered.
+  final style = SystemChrome.latestStyle;
+  expect(style, isNotNull);
+  expect(style!.systemNavigationBarColor, Colors.transparent);
+  expect(style.systemNavigationBarDividerColor, Colors.transparent);
+  expect(style.statusBarColor, Colors.transparent);
+  expect(style.systemNavigationBarContrastEnforced, isFalse);
+  expect(style.systemStatusBarContrastEnforced, isFalse);
+  final iconBrightness = backgroundBrightness == Brightness.dark
+      ? Brightness.light
+      : Brightness.dark;
+  expect(style.systemNavigationBarIconBrightness, iconBrightness);
+  expect(style.statusBarIconBrightness, iconBrightness);
+
+  // Transparent system bars must reveal the app background, including the
+  // strips outside SafeArea, instead of an unpainted or contrasting surface.
+  final paintedBackdrop = find
+      .descendant(
+        of: find.byType(AppBackdrop),
+        matching: find.byType(ColoredBox),
+      )
+      .first;
+  expect(tester.getRect(paintedBackdrop), Offset.zero & size);
+  expect(
+    tester.widget<ColoredBox>(paintedBackdrop).color,
+    backgroundBrightness == Brightness.dark
+        ? AppPalette.dark.background
+        : AppPalette.light.background,
+  );
+}
+
+void _expectControlsInsideSystemInsets(
+  WidgetTester tester, {
+  required Size size,
+  required FakeViewPadding padding,
+}) {
+  for (final key in [
+    'feed-slide-track',
+    'backfill-feed',
+    'app-navigation',
+    'nav-home',
+    'nav-history',
+    'nav-settings',
+  ]) {
+    final target = find.byKey(ValueKey(key));
+    final bounds = tester.getRect(target);
+    expect(bounds.left, greaterThanOrEqualTo(padding.left), reason: key);
+    expect(bounds.top, greaterThanOrEqualTo(padding.top), reason: key);
+    expect(
+      bounds.right,
+      lessThanOrEqualTo(size.width - padding.right),
+      reason: key,
+    );
+    expect(
+      bounds.bottom,
+      lessThanOrEqualTo(size.height - padding.bottom),
+      reason: key,
+    );
+    expect(target.hitTestable(), findsOneWidget, reason: key);
+  }
+}
+
 Future<void> _slideToRecord(WidgetTester tester) async {
   final thumb = find.byKey(const ValueKey('feed-slide-thumb'));
   await tester.ensureVisible(thumb);
@@ -1383,6 +1451,62 @@ void main() {
   );
 
   testWidgets(
+    'transparent Android bars follow theme choices above safe portrait controls',
+    (tester) async {
+      const size = Size(390, 844);
+      const padding = FakeViewPadding(top: 24, bottom: 34);
+      final app = await _mount(
+        tester,
+        size: size,
+        seeded: true,
+        padding: padding,
+      );
+      for (final mode in [ThemeMode.light, ThemeMode.dark, ThemeMode.system]) {
+        await app.settings.setThemeMode(mode);
+        for (final systemBrightness in [Brightness.light, Brightness.dark]) {
+          tester.platformDispatcher.platformBrightnessTestValue =
+              systemBrightness;
+          await tester.pumpAndSettle();
+          final backgroundBrightness = mode == ThemeMode.system
+              ? systemBrightness
+              : mode == ThemeMode.dark
+              ? Brightness.dark
+              : Brightness.light;
+          _expectTransparentSystemBars(
+            tester,
+            size: size,
+            backgroundBrightness: backgroundBrightness,
+          );
+          _expectControlsInsideSystemInsets(
+            tester,
+            size: size,
+            padding: padding,
+          );
+          expect(tester.takeException(), isNull);
+        }
+      }
+
+      await tester.tap(find.byKey(const ValueKey('backfill-feed')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AddFeedRecordDialog), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('add-feed-cancel')));
+      await tester.pumpAndSettle();
+      for (final tab in ['nav-history', 'nav-settings', 'nav-home']) {
+        await tester.tap(find.byKey(ValueKey(tab)));
+        await tester.pumpAndSettle();
+        _expectTransparentSystemBars(
+          tester,
+          size: size,
+          backgroundBrightness: Brightness.dark,
+        );
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
     'standby covers system insets in dark color and survives system theme changes',
     (tester) async {
       final app = await _mount(
@@ -1397,6 +1521,11 @@ void main() {
       final deadline = app.feed.nextFeedTime;
       final standby = find.byKey(const ValueKey('standby-screen'));
       final outerScaffold = find.byType(Scaffold).first;
+      _expectTransparentSystemBars(
+        tester,
+        size: const Size(740, 360),
+        backgroundBrightness: Brightness.light,
+      );
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();
 
@@ -1420,6 +1549,11 @@ void main() {
           tester.getRect(outerScaffold),
           const Rect.fromLTWH(0, 0, 740, 360),
         );
+        _expectTransparentSystemBars(
+          tester,
+          size: const Size(740, 360),
+          backgroundBrightness: Brightness.dark,
+        );
         expect(tester.state(home), same(originalHomeState));
         expect(app.feed.nextFeedTime, deadline);
         expect(app.feed.feedHistory, hasLength(2));
@@ -1434,12 +1568,18 @@ void main() {
         tester.widget<Scaffold>(outerScaffold).backgroundColor,
         AppPalette.light.background,
       );
+      _expectTransparentSystemBars(
+        tester,
+        size: const Size(740, 360),
+        backgroundBrightness: Brightness.light,
+      );
       expect(tester.state(home), same(originalHomeState));
       expect(app.feed.nextFeedTime, deadline);
       expect(app.feed.feedHistory, hasLength(2));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
 
   testWidgets(
@@ -1493,6 +1633,12 @@ void main() {
       seeded: true,
       padding: padding,
     );
+    _expectTransparentSystemBars(
+      tester,
+      size: size,
+      backgroundBrightness: Brightness.light,
+    );
+    _expectControlsInsideSystemInsets(tester, size: size, padding: padding);
     for (final target in [
       find.byKey(const ValueKey('landscape-countdown')),
       find.byType(FeedButton),
@@ -1510,7 +1656,7 @@ void main() {
       expect(tester.takeException(), isNull);
     }
     await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   for (final size in [const Size(640, 320), const Size(740, 360)]) {
     for (final keyboardHeight in [180.0, 200.0]) {
