@@ -38,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   LogicalKeyboardKey? _wakeKey;
   FeedProvider? _feed;
   SettingsProvider? _settings;
+  DateTime? _alertDeadline;
 
   @override
   void didChangeDependencies() {
@@ -47,6 +48,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_feed != feed) {
       _feed?.removeListener(_checkStandbyConditions);
       _feed = feed..addListener(_checkStandbyConditions);
+      _alertDeadline = feed.state == FeedState.alerting
+          ? feed.nextFeedTime
+          : null;
     }
     if (_settings != settings) {
       _settings?.removeListener(_checkStandbyConditions);
@@ -55,12 +59,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _checkStandbyConditions() {
+    final alertDeadline = _feed!.state == FeedState.alerting
+        ? _feed!.nextFeedTime
+        : null;
+    final newAlert = alertDeadline != null && alertDeadline != _alertDeadline;
+    _alertDeadline = alertDeadline;
+    // Wake once when a feeding becomes due, then allow idle protection again.
+    // Per-second updates and acknowledging that same alert must not wake it.
     // The overlay, navigation and keyboard focus must wake together. Waiting
     // for the five-second idle timer left the visible controls unfocusable.
-    if (_dimmed &&
-        (!_settings!.burnInProtectionEnabled ||
-            _feed!.lastFeedTime == null ||
-            _feed!.state == FeedState.alerting)) {
+    if (newAlert ||
+        (_dimmed &&
+            (!_settings!.burnInProtectionEnabled ||
+                _feed!.lastFeedTime == null))) {
       _wake();
     }
   }
@@ -76,7 +87,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final shouldDim =
           settings.burnInProtectionEnabled &&
           feed.lastFeedTime != null &&
-          feed.state != FeedState.alerting &&
           _idleFor >= const Duration(seconds: 30) &&
           (ModalRoute.of(context)?.isCurrent ?? true);
       if (shouldDim || _dimmed) {
@@ -210,6 +220,11 @@ class _HomeScreenState extends State<HomeScreen> {
     builder: (context, feed, settings, _) {
       final size = MediaQuery.sizeOf(context);
       final landscape = size.width >= 600 && size.width > size.height;
+      final overdue = feed.state == FeedState.alerting;
+      final standbyLabel = overdue ? '已超时' : '距离下次喂奶';
+      final standbyTime = TimeUtils.formatDuration(
+        overdue ? feed.overdue : feed.timeRemaining,
+      );
       final quiet =
           settings.nightModeEnabled &&
           TimeUtils.isInNightMode(
@@ -245,16 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_dimmed &&
                   widget.isActive &&
                   settings.burnInProtectionEnabled &&
-                  feed.lastFeedTime != null &&
-                  feed.state != FeedState.alerting)
+                  feed.lastFeedTime != null)
                 Positioned.fill(
                   child: BlockSemantics(
                     child: Semantics(
                       key: const ValueKey('standby-screen'),
                       excludeSemantics: true,
                       button: true,
-                      label:
-                          '距离下次喂奶 ${TimeUtils.formatDuration(feed.timeRemaining)}，轻触唤醒屏幕',
+                      label: '$standbyLabel $standbyTime，轻触唤醒屏幕',
                       onTap: _wake,
                       child: GestureDetector(
                         onTap: _wake,
@@ -273,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      '距离下次喂奶',
+                                      standbyLabel,
                                       style: TextStyle(
                                         color: AppPalette.dark.textSecondary,
                                         fontSize: 18,
@@ -284,9 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       child: FittedBox(
                                         fit: BoxFit.scaleDown,
                                         child: CountdownText(
-                                          TimeUtils.formatDuration(
-                                            feed.timeRemaining,
-                                          ),
+                                          standbyTime,
                                           fontSize: landscape ? 112 : 64,
                                           color: AppPalette.dark.primary,
                                         ),
@@ -294,7 +305,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     const SizedBox(height: 16),
                                     Text(
-                                      '下次 ${TimeUtils.formatTime(feed.nextFeedTime!)} · 轻触唤醒',
+                                      '${overdue ? '原定' : '下次'} ${TimeUtils.formatTime(feed.nextFeedTime!)} · 轻触唤醒',
                                       style: TextStyle(
                                         color: AppPalette.dark.textSecondary,
                                         fontSize: 14,

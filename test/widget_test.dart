@@ -29,6 +29,27 @@ class _Audio extends AudioService {
   Future<void> stopReminder() async {}
 }
 
+class _TrackingAudio extends AudioService {
+  bool _playing = false;
+  int playCalls = 0;
+  int stopCalls = 0;
+
+  @override
+  bool get isPlaying => _playing;
+
+  @override
+  Future<void> playReminder({bool loop = true}) async {
+    playCalls++;
+    _playing = true;
+  }
+
+  @override
+  Future<void> stopReminder() async {
+    stopCalls++;
+    _playing = false;
+  }
+}
+
 class _Notifications extends NotificationService {
   @override
   bool get isSupported => false;
@@ -201,6 +222,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   Brightness brightness = Brightness.light,
   FakeViewPadding padding = FakeViewPadding.zero,
   StorageService? storageOverride,
+  AudioService? audioOverride,
   DateTime Function()? clock,
 }) async {
   tester.view.physicalSize = size;
@@ -235,7 +257,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
       ),
   });
   final storage = storageOverride ?? StorageService();
-  final audio = _Audio();
+  final audio = audioOverride ?? _Audio();
   final notifications = _Notifications();
   final feed = FeedProvider(
     storage: storage,
@@ -1426,6 +1448,154 @@ void main() {
         matching: find.byType(ExcludeFocus),
       );
       expect(tester.widget<ExcludeFocus>(homeFocus).excluding, isFalse);
+      expect(app.feed.feedHistory, hasLength(2));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'overdue alert restarts idle time and protects the screen without stopping sound',
+    (tester) async {
+      var now = DateTime(2026, 9, 27, 12);
+      final audio = _TrackingAudio();
+      final app = await _mount(
+        tester,
+        size: const Size(740, 360),
+        clock: () => now,
+        audioOverride: audio,
+        seededRecords: [FeedRecord(time: DateTime(2026, 9, 27, 9, 0, 20))],
+        burnInProtection: true,
+      );
+      final semantics = tester.ensureSemantics();
+      final standby = find.byKey(const ValueKey('standby-screen'));
+      final originalIds = app.feed.feedHistory
+          .map((record) => record.id)
+          .toList();
+
+      // Becoming due while already idle must grant a full new reminder window.
+      await tester.pump(const Duration(seconds: 25));
+      expect(standby, findsNothing);
+      now = now.add(const Duration(seconds: 20));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(app.feed.state, FeedState.alerting);
+      expect(audio.isPlaying, isTrue);
+      final stopsWhileAlerting = audio.stopCalls;
+      await tester.pump(const Duration(seconds: 25));
+      await tester.pumpAndSettle();
+      expect(standby, findsNothing);
+      expect(find.byKey(const ValueKey('app-navigation')), findsOneWidget);
+
+      now = now.add(const Duration(seconds: 30));
+      await app.feed.refresh();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+      expect(find.byKey(const ValueKey('app-navigation')), findsNothing);
+      expect(
+        tester.getSemantics(standby).getSemanticsData().label,
+        '已超时 00:00:30，轻触唤醒屏幕',
+      );
+      expect(find.text('原定 12:00 · 轻触唤醒'), findsOneWidget);
+
+      for (var second = 31; second <= 33; second++) {
+        now = now.add(const Duration(seconds: 1));
+        await app.feed.refresh();
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+        expect(standby, findsOneWidget);
+        expect(
+          tester.getSemantics(standby).getSemanticsData().label,
+          '已超时 00:00:$second，轻触唤醒屏幕',
+        );
+        expect(audio.isPlaying, isTrue);
+        expect(audio.stopCalls, stopsWhileAlerting);
+      }
+
+      await tester.tap(standby);
+      await tester.pumpAndSettle();
+      expect(standby, findsNothing);
+      expect(app.feed.feedHistory.map((record) => record.id), originalIds);
+      expect(app.feed.isAlertAcknowledged, isFalse);
+      expect(audio.isPlaying, isTrue);
+      expect(audio.stopCalls, stopsWhileAlerting);
+
+      await tester.tap(find.text('停止本次提醒'));
+      await tester.pumpAndSettle();
+      expect(app.feed.isAlertAcknowledged, isTrue);
+      expect(audio.isPlaying, isFalse);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+      now = now.add(const Duration(seconds: 1));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+      expect(audio.isPlaying, isFalse);
+      expect(app.feed.feedHistory.map((record) => record.id), originalIds);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      semantics.dispose();
+    },
+  );
+
+  testWidgets(
+    'initial overdue standby wakes for a changed deadline and the next feeding cycle',
+    (tester) async {
+      var now = DateTime(2026, 9, 27, 12, 30);
+      final audio = _TrackingAudio();
+      final app = await _mount(
+        tester,
+        size: const Size(740, 360),
+        clock: () => now,
+        audioOverride: audio,
+        seededRecords: [FeedRecord(time: DateTime(2026, 9, 27, 9))],
+        burnInProtection: true,
+      );
+      final standby = find.byKey(const ValueKey('standby-screen'));
+      expect(app.feed.state, FeedState.alerting);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+
+      // An interval edit can produce a new deadline without leaving alerting.
+      await app.settings.setFeedInterval(170);
+      await tester.pumpAndSettle();
+      expect(app.feed.state, FeedState.alerting);
+      expect(standby, findsNothing);
+      expect(find.byKey(const ValueKey('app-navigation')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+      expect(find.text('原定 11:50 · 轻触唤醒'), findsOneWidget);
+
+      await tester.tap(standby);
+      await tester.pumpAndSettle();
+      await _slideToRecord(tester);
+      await tester.pumpAndSettle();
+      expect(app.feed.feedHistory, hasLength(2));
+      expect(app.feed.state, FeedState.normal);
+      expect(audio.isPlaying, isFalse);
+      final playsBeforeNextAlert = audio.playCalls;
+      now = app.feed.nextFeedTime!.subtract(const Duration(seconds: 1));
+      await app.feed.refresh();
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+
+      now = now.add(const Duration(seconds: 1));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(app.feed.state, FeedState.alerting);
+      expect(standby, findsNothing);
+      expect(find.text('停止本次提醒').hitTestable(), findsOneWidget);
+      expect(audio.isPlaying, isTrue);
+      expect(audio.playCalls, playsBeforeNextAlert + 1);
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(standby, findsOneWidget);
+      expect(audio.isPlaying, isTrue);
       expect(app.feed.feedHistory, hasLength(2));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
