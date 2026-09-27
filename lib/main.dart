@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'app.dart';
-import 'widgets/app_glass.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppGlass.initialize();
+  LicenseRegistry.addLicense(() async* {
+    for (final font in ['Inter', 'Tinos', 'NotoSerifSC']) {
+      yield LicenseEntryWithLineBreaks([
+        font,
+      ], await rootBundle.loadString('assets/fonts/OFL-$font.txt'));
+    }
+  });
   runApp(const FeedReminderApp());
 }

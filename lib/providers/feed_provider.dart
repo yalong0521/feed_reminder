@@ -49,8 +49,11 @@ class FeedProvider extends ChangeNotifier {
   bool _foreground = true;
   bool _hasTriggeredAlert = false;
   bool _alertAcknowledged = false;
+  bool _audioStopPending = false;
+  bool _notificationErrorPending = false;
   bool _wasQuiet = false;
   int _pendingWrites = 0;
+  int _pendingReminderEffects = 0;
   int _settingsRevision = 0;
   String? _error;
   DateTime? _lastFeedTime;
@@ -96,6 +99,14 @@ class FeedProvider extends ChangeNotifier {
   bool _isQuietAt(DateTime time) =>
       _nightModeEnabled &&
       TimeUtils.isInNightMode(_nightStartTime, _nightEndTime, now: time);
+
+  bool get _mustStopAudio =>
+      _state != FeedState.alerting ||
+      _lastFeedTime == null ||
+      _isQuietAt(_clock()) ||
+      !_foreground ||
+      _alertAcknowledged ||
+      !_soundEnabled;
 
   Future<void> _initialize() async {
     final settingsRevision = _settingsRevision;
@@ -174,7 +185,9 @@ class FeedProvider extends ChangeNotifier {
     final quiet = _isQuietAt(_clock());
     if (leftAlert ||
         quiet != _wasQuiet ||
-        (_state == FeedState.alerting &&
+        (_audioStopPending && _pendingReminderEffects == 0 && _mustStopAudio) ||
+        (_pendingReminderEffects == 0 &&
+            _state == FeedState.alerting &&
             !_hasTriggeredAlert &&
             !_alertAcknowledged &&
             _foreground &&
@@ -368,17 +381,26 @@ class FeedProvider extends ChangeNotifier {
     bool restartAudio = false,
     bool preserveDueReminder = false,
   }) {
+    _pendingReminderEffects++;
     final operation = _effectQueue
         .then<bool>((_) async {
           if (_disposed) return false;
           var effectFailed = false;
+          var notificationFailed = false;
           var audioStopped = true;
-          Future<bool> attempt(Future<void> Function() effect) async {
+          Future<bool> attempt(
+            Future<void> Function() effect, {
+            bool notification = false,
+          }) async {
             try {
               await effect();
               return true;
             } catch (_) {
               effectFailed = true;
+              if (notification) {
+                notificationFailed = true;
+                _notificationErrorPending = true;
+              }
               if (!_disposed) {
                 _error = _reminderError;
                 _notify();
@@ -396,15 +418,20 @@ class FeedProvider extends ChangeNotifier {
           final replaceNative =
               reschedule &&
               !(preserveDueReminder && due && !_alertAcknowledged && !quiet);
-          if (replaceNative) await attempt(_notificationService.cancelAll);
+          if (replaceNative) {
+            await attempt(_notificationService.cancelAll, notification: true);
+          }
           if (_disposed) return false;
-          if (restartAudio ||
-              !due ||
-              quiet ||
-              !_foreground ||
-              _alertAcknowledged ||
-              !_soundEnabled) {
+          if (restartAudio || _mustStopAudio) {
             audioStopped = await attempt(_audioService.stopReminder);
+            if (restartAudio && audioStopped) _hasTriggeredAlert = false;
+            // A committed record must stay successful even if stopping fails.
+            // Retry on a later tick only while silence is still required and
+            // the effect queue is idle, so slow native calls cannot pile up.
+            _audioStopPending = !audioStopped;
+          } else {
+            // A newer cycle may need sound before an old stop can be retried.
+            _audioStopPending = false;
           }
           if (_disposed) return false;
           final next = nextFeedTime;
@@ -418,6 +445,7 @@ class FeedProvider extends ChangeNotifier {
                 next,
                 playSound: _soundEnabled && !_foreground,
               ),
+              notification: true,
             );
           }
           if (_disposed) return false;
@@ -442,13 +470,24 @@ class FeedProvider extends ChangeNotifier {
                 _isQuietAt(_clock()) ||
                 (startedSound && !_soundEnabled) ||
                 _state != FeedState.alerting) {
-              return await attempt(_audioService.stopReminder) && audioStopped;
+              final stopped = await attempt(_audioService.stopReminder);
+              _audioStopPending = !stopped;
+              return stopped && audioStopped;
             }
             await attempt(
               () => _notificationService.showFeedReminder(playSound: false),
+              notification: true,
             );
           }
-          if (!effectFailed && _error == _reminderError) {
+          // An audio-only recovery says nothing about an earlier failed native
+          // cancellation or schedule. Clear that failure only after replacing
+          // the notification state successfully.
+          if (replaceNative && !notificationFailed) {
+            _notificationErrorPending = false;
+          }
+          if (!effectFailed &&
+              !_notificationErrorPending &&
+              _error == _reminderError) {
             _error = null;
             _notify();
           }
@@ -459,6 +498,9 @@ class FeedProvider extends ChangeNotifier {
           _error = _reminderError;
           _notify();
           return false;
+        })
+        .whenComplete(() {
+          _pendingReminderEffects--;
         });
     _effectQueue = operation.then<void>((_) {});
     return operation;

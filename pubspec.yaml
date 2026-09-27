@@ -33,7 +33,6 @@ dependencies:
 
   # Required by Flutter's adaptive Cupertino controls, including web pickers.
   cupertino_icons: ^1.0.8
-  liquid_glass_widgets: 1.7.2
 
   flutter_localizations:
     sdk: flutter
@@ -71,13 +70,23 @@ flutter:
 
   assets:
     - assets/sounds/
-    - assets/img/
     - assets/fonts/OFL-Inter.txt
+    - assets/fonts/OFL-Tinos.txt
+    - assets/fonts/OFL-NotoSerifSC.txt
 
   fonts:
     - family: Inter
       fonts:
         - asset: assets/fonts/InterVariable.ttf
+    - family: JournalSerif
+      fonts:
+        - asset: assets/fonts/Tinos-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Tinos-Bold.ttf
+          weight: 700
+    - family: JournalChinese
+      fonts:
+        - asset: assets/fonts/NotoSerifSCSubset.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

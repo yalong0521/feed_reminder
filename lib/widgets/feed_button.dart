@@ -3,7 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import '../utils/constants.dart';
-import 'app_glass.dart';
+import 'app_surface.dart';
 import 'app_controls.dart';
 
 /// Pointer input must start on the handle and reach the end before release.
@@ -41,6 +41,7 @@ class _FeedButtonState extends State<FeedButton>
   bool _undoing = false;
   bool _dragging = false;
   bool _focused = false;
+  int? _pressedPointer;
   double? _layoutWidth;
   double? _gestureWidth;
 
@@ -62,6 +63,7 @@ class _FeedButtonState extends State<FeedButton>
 
   void _reset() {
     if (!mounted) return;
+    _releasePress();
     _dragging = false;
     _gestureWidth = null;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -71,6 +73,10 @@ class _FeedButtonState extends State<FeedButton>
     }
   }
 
+  void _releasePress() {
+    if (_pressedPointer != null) setState(() => _pressedPointer = null);
+  }
+
   Future<void> _record() async {
     if (!_interactive) return;
     _confirmationTimer?.cancel();
@@ -78,6 +84,7 @@ class _FeedButtonState extends State<FeedButton>
       _busy = true;
       _failed = false;
       _dragging = false;
+      _pressedPointer = null;
     });
     _progress.value = 1;
     try {
@@ -209,13 +216,14 @@ class _FeedButtonState extends State<FeedButton>
           previousWidth != width &&
           !_busy &&
           !_saved &&
-          _progress.value > 0) {
+          (_progress.value > 0 || _pressedPointer != null)) {
         _gestureWidth = null;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_busy && !_saved) _reset();
         });
       }
       final colors = AppPalette.of(context);
+      final reduceMotion = MediaQuery.disableAnimationsOf(context);
       const inset = 6.0;
       const handle = 52.0;
       final travel = (width - inset * 2 - handle).clamp(1.0, double.infinity);
@@ -224,7 +232,7 @@ class _FeedButtonState extends State<FeedButton>
         height: 64,
         width: double.infinity,
         child: _saved || _busy
-            ? AppGlassSurface(
+            ? AppSurface(
                 tinted: true,
                 radius: 32,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -269,7 +277,7 @@ class _FeedButtonState extends State<FeedButton>
                     if (_saved && widget.onUndo != null)
                       AppButton(
                         key: const ValueKey('feed-slide-undo'),
-                        glass: false,
+                        surface: false,
                         compact: true,
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         onPressed: _busy || !widget.enabled ? null : _undo,
@@ -316,11 +324,46 @@ class _FeedButtonState extends State<FeedButton>
                             ? Border.all(color: colors.primary, width: 2)
                             : null,
                       ),
-                      child: AppGlassSurface(
-                        tinted: true,
+                      child: AppSurface(
+                        color: colors.softGreen,
+                        outlined: false,
                         radius: 32,
                         child: Stack(
                           children: [
+                            Positioned(
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width:
+                                  inset * 2 + handle + travel * _progress.value,
+                              child: IgnorePointer(
+                                child: Opacity(
+                                  opacity: Curves.easeOut.transform(
+                                    _progress.value,
+                                  ),
+                                  child: DecoratedBox(
+                                    key: const ValueKey('feed-slide-fill'),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(32),
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Color.lerp(
+                                            colors.softGreen,
+                                            colors.primary,
+                                            .08 + .1 * _progress.value,
+                                          )!,
+                                          Color.lerp(
+                                            colors.softGreen,
+                                            colors.primary,
+                                            .2 + .16 * _progress.value,
+                                          )!,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                             Positioned.fill(
                               child: Padding(
                                 padding: const EdgeInsets.only(
@@ -336,13 +379,15 @@ class _FeedButtonState extends State<FeedButton>
                                     child: FittedBox(
                                       fit: BoxFit.scaleDown,
                                       child: Text(
-                                        _failed ? '未保存，右滑重试' : '右滑记录喂奶',
+                                        _failed ? '未保存，右滑重试' : '滑动记录喂奶',
                                         style: TextStyle(
-                                          color: colors.onPrimary.withValues(
-                                            alpha: widget.enabled ? 1 : .5,
-                                          ),
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600,
+                                          color: colors.textSecondary
+                                              .withValues(
+                                                alpha: widget.enabled ? 1 : .5,
+                                              ),
+                                          fontSize: 16,
+                                          fontFamily: 'JournalChinese',
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                     ),
@@ -362,7 +407,7 @@ class _FeedButtonState extends State<FeedButton>
                                             ? '松开确认'
                                             : '继续向右滑',
                                         style: TextStyle(
-                                          color: colors.onPrimary,
+                                          color: colors.textPrimary,
                                           fontSize: 17,
                                           fontWeight: FontWeight.w500,
                                         ),
@@ -379,9 +424,27 @@ class _FeedButtonState extends State<FeedButton>
                               height: handle,
                               child: MouseRegion(
                                 cursor: _interactive
-                                    ? SystemMouseCursors.grab
+                                    ? (_pressedPointer != null
+                                          ? SystemMouseCursors.grabbing
+                                          : SystemMouseCursors.grab)
                                     : SystemMouseCursors.basic,
                                 child: Listener(
+                                  onPointerDown: !_interactive
+                                      ? null
+                                      : (event) {
+                                          if (_pressedPointer == null &&
+                                              event.buttons == kPrimaryButton) {
+                                            setState(
+                                              () => _pressedPointer =
+                                                  event.pointer,
+                                            );
+                                          }
+                                        },
+                                  onPointerUp: (event) {
+                                    if (_pressedPointer == event.pointer) {
+                                      _releasePress();
+                                    }
+                                  },
                                   // Flutter ends an accepted drag on pointer
                                   // cancellation too. Invalidate it first.
                                   onPointerCancel: (_) => _reset(),
@@ -427,17 +490,34 @@ class _FeedButtonState extends State<FeedButton>
                                             }
                                           },
                                     onHorizontalDragCancel: _reset,
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: colors.onPrimary.withValues(
-                                          alpha: widget.enabled ? .94 : .45,
-                                        ),
-                                        shape: BoxShape.circle,
+                                    // Scale only the artwork; the original
+                                    // 52px gesture target stays stable.
+                                    child: AnimatedScale(
+                                      scale:
+                                          _pressedPointer != null &&
+                                              _interactive &&
+                                              !reduceMotion
+                                          ? .94
+                                          : 1,
+                                      duration: Duration(
+                                        milliseconds: reduceMotion ? 0 : 140,
                                       ),
-                                      child: Icon(
-                                        CupertinoIcons.chevron_right_2,
-                                        color: colors.primary,
-                                        size: 25,
+                                      curve: Curves.easeOutCubic,
+                                      child: DecoratedBox(
+                                        key: const ValueKey(
+                                          'feed-slide-thumb-visual',
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: colors.primary.withValues(
+                                            alpha: widget.enabled ? 1 : .45,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          CupertinoIcons.arrow_right,
+                                          color: colors.onPrimary,
+                                          size: 25,
+                                        ),
                                       ),
                                     ),
                                   ),

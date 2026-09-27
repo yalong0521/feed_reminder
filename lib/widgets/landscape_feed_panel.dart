@@ -5,22 +5,13 @@ import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
-import 'app_glass.dart';
 import 'app_controls.dart';
+import 'countdown_scale.dart';
+import 'countdown_text.dart';
 import 'feed_button.dart';
-import 'glass_countdown_text.dart';
 
-/// A distant-readable timer above a single, reachable glass control dock.
+/// The slider keeps the same element path when the journal changes layout.
 class LandscapeFeedPanel extends StatelessWidget {
-  final FeedProvider feed;
-  final SettingsProvider settings;
-  final bool quiet;
-  final Future<void> Function() onRecord;
-  final Future<void> Function() onUndo;
-  final Future<void> Function() onStopAlert;
-  final VoidCallback onBackfill;
-  final VoidCallback? onHistory;
-
   const LandscapeFeedPanel({
     super.key,
     required this.feed,
@@ -32,465 +23,383 @@ class LandscapeFeedPanel extends StatelessWidget {
     required this.onBackfill,
     this.onHistory,
   });
-
+  final FeedProvider feed;
+  final SettingsProvider settings;
+  final bool quiet;
+  final Future<void> Function() onRecord;
+  final Future<void> Function() onUndo;
+  final Future<void> Function() onStopAlert;
+  final VoidCallback onBackfill;
+  final VoidCallback? onHistory;
   bool get _alert => feed.state == FeedState.alerting;
   bool get _warning => feed.state == FeedState.warning;
   bool get _hasRecord => feed.lastFeedTime != null;
+  Color _timeColor(AppPalette p) => _alert
+      ? p.alert
+      : _warning
+      ? p.warning
+      : p.primary;
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final landscape = size.width >= 600 && size.width > size.height;
-    final shortLandscape = landscape && size.height < 360;
+    final horizontalPadding = landscape && size.width >= 800 ? 32.0 : 24.0;
+    final p = AppPalette.of(context);
     return Center(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: landscape ? 1440 : 640),
+        constraints: BoxConstraints(maxWidth: landscape ? 1280 : 660),
         child: Padding(
-          key: ValueKey(landscape ? 'landscape-home' : 'portrait-home'),
           padding: EdgeInsets.fromLTRB(
-            size.width >= 740 ? 32 : 16,
-            4,
-            size.width >= 740 ? 32 : 16,
-            shortLandscape
-                ? 12
-                : landscape
-                ? 24
-                : 16,
+            horizontalPadding,
+            landscape ? 26 : 24,
+            horizontalPadding,
+            landscape ? 32 : 20,
           ),
           child: LayoutBuilder(
-            builder: (context, constraints) {
-              if (landscape) {
-                // A short keyboard viewport scrolls; normal phone landscapes keep
-                // the clock and the complete dock on screen, including large text.
-                final height = math.max(
-                  feed.error == null ? 220.0 : 250.0,
-                  constraints.maxHeight,
-                );
-                return SingleChildScrollView(
-                  child: SizedBox(
-                    height: height,
-                    child: Column(
-                      children: [
-                        if (feed.error != null) _error(context),
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: _metric(
-                                  context,
-                                  '上次喂奶',
-                                  _hasRecord
-                                      ? TimeUtils.formatTime(feed.lastFeedTime!)
-                                      : '— —',
-                                  alignment: Alignment.centerLeft,
-                                ),
-                              ),
-                              Expanded(
-                                flex: 8,
-                                child: _countdown(context, landscape: true),
-                              ),
-                              Expanded(
-                                flex: 2,
-                                child: _metric(
-                                  context,
-                                  '今日',
-                                  '${feed.todayRecords.length} 次',
-                                  onTap: onHistory,
-                                  alignment: Alignment.centerRight,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _progress(context),
-                        _dock(context, landscape: true),
-                      ],
+            builder: (context, constraints) => SingleChildScrollView(
+              child: SizedBox(
+                height: math.max(constraints.maxHeight, landscape ? 240 : 480),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      key: ValueKey(
+                        landscape ? 'landscape-home' : 'portrait-home',
+                      ),
+                      height: landscape ? 0 : 84,
+                      child: landscape ? null : _heading(context),
                     ),
-                  ),
-                );
-              }
-              return Column(
-                children: [
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, content) {
-                        return SingleChildScrollView(
-                          child: SizedBox(
-                            height: math.max(content.maxHeight, 285),
-                            child: Column(
-                              children: [
-                                if (feed.error != null) _error(context),
-                                Expanded(
-                                  child: _countdown(context, landscape: false),
-                                ),
-                                SizedBox(
-                                  height: 76,
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: _metric(
-                                          context,
-                                          '上次喂奶',
-                                          _hasRecord
-                                              ? TimeUtils.formatTime(
-                                                  feed.lastFeedTime!,
-                                                )
-                                              : '— —',
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: _metric(
-                                          context,
-                                          '今日',
-                                          '${feed.todayRecords.length} 次',
-                                          onTap: onHistory,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+                    if (feed.error != null)
+                      Text(
+                        feed.error!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: p.alert, fontSize: 12),
+                      ),
+                    Expanded(
+                      child: Center(child: _countdown(context, landscape)),
                     ),
-                  ),
-                  _progress(context),
-                  _dock(context, landscape: false),
-                ],
-              );
-            },
+                    SizedBox(height: landscape ? 16 : 24),
+                    SizedBox(
+                      height: landscape ? 0 : 108,
+                      child: landscape ? null : _facts(context),
+                    ),
+                    _dock(context, landscape),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _error(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      feed.error!,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(color: AppPalette.of(context).alert, fontSize: 13),
-    ),
-  );
-
-  Widget _countdown(BuildContext context, {required bool landscape}) {
-    final colors = AppPalette.of(context);
-    final label = !_hasRecord
-        ? '等待第一条记录'
-        : _alert
-        ? '已到喂奶时间 · 已超过'
-        : _warning
-        ? '快到喂奶时间'
-        : '距离下次喂奶';
-    final color = _alert
-        ? colors.alert
-        : _warning
-        ? colors.warning
-        : Theme.of(context).brightness == Brightness.dark
-        ? colors.textPrimary
-        : colors.primary;
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: landscape ? 8 : 0, vertical: 6),
+  Widget _heading(BuildContext context) {
+    final p = AppPalette.of(context);
+    final now = feed.referenceTime;
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topLeft,
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: landscape ? 18 : 20,
-                    fontWeight: FontWeight.w500,
-                    color: _alert || _warning ? color : colors.textSecondary,
-                  ),
-                ),
-                if (quiet) ...[
-                  const SizedBox(width: 8),
-                  Tooltip(
-                    message: '夜间静默',
-                    child: Icon(
-                      CupertinoIcons.moon,
-                      size: 18,
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
+          Text(
+            '喂奶提醒',
+            style: TextStyle(
+              fontFamily: 'JournalChinese',
+              color: p.primary,
+              fontSize: 30,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
+          Text(
+            '${now.month}月${now.day}日  周${'一二三四五六日'[now.weekday - 1]}',
+            style: TextStyle(
+              fontFamily: 'JournalChinese',
+              color: p.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _countdown(BuildContext context, bool landscape) {
+    final p = AppPalette.of(context);
+    final color = _timeColor(p);
+    return Padding(
+      padding: EdgeInsets.only(top: landscape ? 8 : 0),
+      child: Column(
+        // Keep the clock, scale and reminder together at every screen height.
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: GlassCountdownText(
-                _hasRecord
-                    ? TimeUtils.formatDuration(
-                        _alert ? feed.overdue : feed.timeRemaining,
-                      )
-                    : '--:--:--',
-                key: ValueKey(
-                  landscape ? 'landscape-countdown' : 'portrait-countdown',
+            child: FractionallySizedBox(
+              widthFactor: landscape ? .94 : 1,
+              alignment: Alignment.center,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.center,
+                child: Row(
+                  children: [
+                    Text(
+                      _alert
+                          ? '该喂奶了，已超过'
+                          : _warning
+                          ? '快到喂奶时间'
+                          : !_hasRecord
+                          ? '等待第一条记录'
+                          : '距离下次喂奶',
+                      style: TextStyle(
+                        fontFamily: 'JournalChinese',
+                        color: _alert || _warning ? color : p.textPrimary,
+                        fontSize: landscape ? 19 : 17,
+                      ),
+                    ),
+                    if (quiet) ...[
+                      const SizedBox(width: 10),
+                      Tooltip(
+                        message: '夜间静默',
+                        child: Icon(
+                          CupertinoIcons.moon,
+                          size: 16,
+                          color: p.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                fontSize: landscape ? 160 : 108,
-                color: color,
               ),
             ),
           ),
-          const SizedBox(height: 6),
-          _nextReminder(context),
+          const SizedBox(height: 10),
+          Flexible(
+            flex: 5,
+            child: FractionallySizedBox(
+              widthFactor: landscape ? .94 : 1,
+              alignment: Alignment.center,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.center,
+                child: CountdownText(
+                  _hasRecord
+                      ? TimeUtils.formatDuration(
+                          _alert ? feed.overdue : feed.timeRemaining,
+                        )
+                      : '--:--:--',
+                  key: ValueKey(
+                    landscape ? 'landscape-countdown' : 'portrait-countdown',
+                  ),
+                  fontSize: landscape ? 180 : 108,
+                  color: color,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          FractionallySizedBox(
+            widthFactor: .86,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: CountdownScale(
+                  remaining: _hasRecord ? feed.timeRemaining : Duration.zero,
+                  interval: Duration(minutes: feed.feedIntervalMinutes),
+                  color: color,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: 48, child: _nextReminder(context)),
         ],
       ),
     );
   }
 
   Widget _nextReminder(BuildContext context) {
-    final colors = AppPalette.of(context);
-    final next = feed.nextFeedTime;
+    final p = AppPalette.of(context);
     if (_alert) {
-      return AppButton(
-        onPressed: onStopAlert,
-        glass: false,
-        destructive: true,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(CupertinoIcons.speaker_slash, size: 19),
-            const SizedBox(width: 8),
-            Flexible(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(feed.isAlertAcknowledged ? '本次提醒已停止' : '停止本次提醒'),
+      return Align(
+        alignment: Alignment.center,
+        child: AppButton(
+          onPressed: onStopAlert,
+          surface: false,
+          destructive: true,
+          padding: EdgeInsets.zero,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(CupertinoIcons.speaker_slash, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(feed.isAlertAcknowledged ? '本次提醒已停止' : '停止本次提醒'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
-
+    final next = feed.nextFeedTime;
     final dateChanged =
         next != null && !DateUtils.isSameDay(feed.referenceTime, next);
-    final hours = feed.feedIntervalMinutes ~/ 60;
-    final minutes = feed.feedIntervalMinutes % 60;
-    final interval =
-        '${hours > 0 ? '$hours 小时' : ''}${hours > 0 && minutes > 0 ? ' ' : ''}${minutes > 0 ? '$minutes 分钟' : ''}';
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            !_hasRecord
-                ? '记录后，开始计时'
-                : '下次 ${dateChanged ? '${next.month}/${next.day} ' : ''}${TimeUtils.formatTime(next!)}',
-            style: TextStyle(
-              fontSize: 18,
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (_hasRecord) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              child: Icon(
-                CupertinoIcons.circle_fill,
-                size: 6,
-                color: colors.accentLight,
-              ),
-            ),
-            Text(
-              '间隔 $interval',
-              style: TextStyle(fontSize: 16, color: colors.textSecondary),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _progress(BuildContext context) {
-    final colors = AppPalette.of(context);
-    final size = MediaQuery.sizeOf(context);
-    final compact =
-        size.width >= 600 && size.width > size.height && size.height < 360;
-    final progress = _hasRecord
-        ? (feed.timeElapsed.inSeconds / (feed.feedIntervalMinutes * 60)).clamp(
-            0.0,
-            1.0,
-          )
-        : 0.0;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, compact ? 6 : 10, 24, compact ? 10 : 16),
-      child: ExcludeSemantics(
-        child: AppProgressTrack(
-          value: progress,
-          height: compact ? 4 : 6,
-          backgroundColor: colors.border.withValues(alpha: .7),
-          color: _alert
-              ? colors.alert
-              : _warning
-              ? colors.warning
-              : colors.accentLight,
-        ),
-      ),
-    );
-  }
-
-  Widget _metric(
-    BuildContext context,
-    String title,
-    String value, {
-    VoidCallback? onTap,
-    Alignment alignment = Alignment.center,
-  }) {
-    final content = Align(
-      alignment: alignment,
+    return Tooltip(
+      message: '提醒间隔 ${feed.feedIntervalMinutes} 分钟',
       child: FittedBox(
         fit: BoxFit.scaleDown,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: alignment == Alignment.centerLeft
-              ? CrossAxisAlignment.start
-              : CrossAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                color: AppPalette.of(context).textSecondary,
-                fontSize: 14,
+        alignment: Alignment.center,
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: !_hasRecord ? '记录后，开始计时' : '下一次  ',
+                style: TextStyle(
+                  fontFamily: 'JournalChinese',
+                  fontSize: 17,
+                  color: p.textSecondary,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 28,
-                height: 1.15,
-                fontWeight: FontWeight.w600,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
+              if (_hasRecord)
+                TextSpan(
+                  text:
+                      '${dateChanged ? '${next.month}/${next.day} ' : ''}${TimeUtils.formatTime(next!)}',
+                  style: TextStyle(
+                    fontFamily: 'JournalSerif',
+                    fontSize: 25,
+                    color: p.primary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
-    return onTap == null
-        ? content
-        : AppPressable(
-            semanticLabel: '查看今日喂奶记录',
-            onPressed: onTap,
-            child: content,
-          );
   }
 
-  Widget _dock(BuildContext context, {required bool landscape}) {
-    final colors = AppPalette.of(context);
-    final record = FeedButton(
-      onPressed: onRecord,
-      onUndo: onUndo,
-      enabled: feed.isInitialized && !feed.isSaving,
-      orientation: landscape ? Orientation.landscape : Orientation.portrait,
-    );
-    final backfill = AppButton(
-      key: const ValueKey('backfill-feed'),
-      onPressed: feed.isSaving ? null : onBackfill,
-      glass: false,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
+  Widget _facts(BuildContext context) {
+    final p = AppPalette.of(context);
+    Widget metric(String title, String value, {String? detail}) => FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(CupertinoIcons.clock, size: 24),
-          SizedBox(width: 8),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                '补记',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-              ),
+          Text(
+            title,
+            style: TextStyle(
+              fontFamily: 'JournalChinese',
+              color: p.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'JournalSerif',
+              fontFamilyFallback: const ['JournalChinese'],
+              color: p.textPrimary,
+              fontSize: 30,
+              height: 1.3,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          if (detail != null)
+            Text(
+              detail,
+              style: TextStyle(color: p.textSecondary, fontSize: 11),
+            ),
+        ],
+      ),
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(top: 14),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: p.border)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: metric(
+              '上次',
+              _hasRecord ? TimeUtils.formatTime(feed.lastFeedTime!) : '— —',
+              detail: _hasRecord
+                  ? '已间隔 ${TimeUtils.formatDuration(feed.timeElapsed)}'
+                  : null,
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: AppPressable(
+              semanticLabel: '查看今日喂奶记录',
+              onPressed: onHistory,
+              child: metric('今天', '${feed.todayRecords.length} 次'),
             ),
           ),
         ],
       ),
     );
-    final elapsed = _hasRecord
-        ? TimeUtils.formatDuration(feed.timeElapsed)
-        : '— —';
-    return AppGlassSurface(
+  }
+
+  Widget _dock(BuildContext context, bool landscape) {
+    final p = AppPalette.of(context);
+    return SizedBox(
       key: const ValueKey('feed-control-dock'),
-      radius: landscape ? 44 : 32,
-      padding: EdgeInsets.symmetric(
-        horizontal: landscape ? 24 : 14,
-        vertical: landscape && MediaQuery.sizeOf(context).height < 360 ? 8 : 14,
-      ),
-      child: landscape
-          ? SizedBox(
-              height: 64,
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 27,
-                    child: _metric(
-                      context,
-                      '已间隔',
-                      elapsed,
-                      alignment: Alignment.center,
+      height: 64,
+      child: Row(
+        children: [
+          Expanded(
+            child: FeedButton(
+              onPressed: onRecord,
+              onUndo: onUndo,
+              enabled: feed.isInitialized && !feed.isSaving,
+              orientation: landscape
+                  ? Orientation.landscape
+                  : Orientation.portrait,
+            ),
+          ),
+          SizedBox(width: landscape ? 22 : 12),
+          AppPressable(
+            key: const ValueKey('backfill-feed'),
+            semanticLabel: '补记',
+            excludeSemantics: true,
+            onPressed: feed.isSaving ? null : onBackfill,
+            child: Container(
+              width: 60,
+              height: 60,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: p.primary, width: .8),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '补记',
+                    style: TextStyle(
+                      fontFamily: 'JournalChinese',
+                      color: p.primary,
+                      fontSize: 16,
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(flex: 49, child: record),
-                  const SizedBox(width: 16),
-                  Expanded(flex: 24, child: backfill),
-                ],
+                ),
               ),
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '已间隔',
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          elapsed,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: record),
-                    const SizedBox(width: 8),
-                    SizedBox(width: 92, child: backfill),
-                  ],
-                ),
-              ],
             ),
+          ),
+        ],
+      ),
     );
   }
 }

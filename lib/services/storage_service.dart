@@ -216,14 +216,13 @@ class StorageService {
     final history = await getFeedHistory();
     history.add(record);
     history.sort((a, b) => b.time.compareTo(a.time));
-    final retained = history.take(100).toList();
     await saveFeedState([
-      for (var i = 0; i < retained.length; i++)
+      for (var i = 0; i < history.length; i++)
         FeedRecord(
-          id: retained[i].id,
-          time: retained[i].time,
-          intervalFromPrevious: i + 1 < retained.length
-              ? retained[i].time.difference(retained[i + 1].time)
+          id: history[i].id,
+          time: history[i].time,
+          intervalFromPrevious: i + 1 < history.length
+              ? history[i].time.difference(history[i + 1].time)
               : null,
         ),
     ]);

@@ -107,6 +107,71 @@ Widget _dialogLauncher() => Scaffold(
 );
 
 void main() {
+  testWidgets(
+    'large same-day history builds rows lazily and reaches old records',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final now = DateTime(2026, 9, 27, 18);
+      final records = [
+        for (var index = 0; index < 240; index++)
+          FeedRecord(
+            id: 'history-$index',
+            time: now.subtract(Duration(minutes: index + 1)),
+          ),
+      ];
+      final storage = _TestStorage();
+      final provider = await _provider(
+        records,
+        storage: storage,
+        clock: () => now,
+      );
+      await tester.pumpWidget(_app(provider));
+      await tester.pumpAndSettle();
+      expect(provider.feedHistory, hasLength(240));
+
+      final builtActions = find.byWidgetPredicate((widget) {
+        final key = widget.key;
+        return widget is AppButton &&
+            key is ValueKey<String> &&
+            key.value.startsWith('delete-record-history-');
+      });
+      expect(builtActions.evaluate().length, inExclusiveRange(0, 25));
+      final oldest = find.byKey(const ValueKey('delete-record-history-239'));
+      expect(oldest, findsNothing);
+      final scroll = find.byKey(const PageStorageKey('feed-history-scroll'));
+      await tester.scrollUntilVisible(
+        oldest,
+        700,
+        scrollable: find.descendant(
+          of: scroll,
+          matching: find.byType(Scrollable),
+        ),
+        maxScrolls: 80,
+      );
+      await tester.pumpAndSettle();
+      expect(oldest.hitTestable(), findsOneWidget);
+      expect(builtActions.evaluate().length, lessThan(25));
+      expect(
+        find.byKey(const ValueKey('delete-record-history-0')),
+        findsNothing,
+      );
+
+      await tester.tap(oldest);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('confirm-delete-record')));
+      await tester.pumpAndSettle();
+      expect(provider.feedHistory, hasLength(239));
+      expect(
+        (await storage.getFeedHistory()).map((record) => record.id),
+        records.take(239).map((record) => record.id),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('backfill uses the same clock as the countdown', (tester) async {
     final now = DateTime(2026, 1, 2, 21, 40, 30);
     final provider = await _provider([], clock: () => now);

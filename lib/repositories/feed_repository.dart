@@ -44,14 +44,13 @@ class FeedRepository {
 
   static List<FeedRecord> normalize(Iterable<FeedRecord> records) {
     final ordered = records.toList()..sort((a, b) => b.time.compareTo(a.time));
-    final retained = ordered.take(100).toList();
     return List.unmodifiable([
-      for (var index = 0; index < retained.length; index++)
+      for (var index = 0; index < ordered.length; index++)
         FeedRecord(
-          id: retained[index].id,
-          time: retained[index].time,
-          intervalFromPrevious: index + 1 < retained.length
-              ? retained[index].time.difference(retained[index + 1].time)
+          id: ordered[index].id,
+          time: ordered[index].time,
+          intervalFromPrevious: index + 1 < ordered.length
+              ? ordered[index].time.difference(ordered[index + 1].time)
               : null,
         ),
     ]);

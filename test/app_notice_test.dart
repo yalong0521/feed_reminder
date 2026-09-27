@@ -147,7 +147,7 @@ void main() {
     final message = find.byKey(const ValueKey('app-notice-message'));
     expect(
       tester.widget<Text>(message).style!.color,
-      AppPalette.light.textPrimary,
+      AppPalette.light.textSecondary,
     );
     expect(
       CupertinoTheme.of(tester.element(_dialog)).brightness,
@@ -158,7 +158,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester.widget<Text>(message).style!.color,
-      AppPalette.dark.textPrimary,
+      AppPalette.dark.textSecondary,
     );
     expect(
       CupertinoTheme.of(tester.element(_dialog)).brightness,

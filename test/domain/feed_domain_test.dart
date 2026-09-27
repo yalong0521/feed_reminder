@@ -867,7 +867,7 @@ void main() {
   );
 
   test(
-    'concurrent additions are serialized and keep the newest 100 records',
+    'concurrent additions are serialized without discarding older records',
     () async {
       final provider = createProvider();
       addTearDown(provider.dispose);
@@ -878,14 +878,107 @@ void main() {
             now.subtract(Duration(minutes: index)),
           ),
       ]);
-      expect(provider.feedHistory, hasLength(100));
+      expect(provider.feedHistory, hasLength(105));
       expect(provider.feedHistory.first.time, now);
       expect(
         provider.feedHistory.last.time,
-        now.subtract(const Duration(minutes: 99)),
+        now.subtract(const Duration(minutes: 104)),
       );
       expect(provider.feedHistory.last.intervalFromPrevious, isNull);
-      expect((await storage.getFeedHistory()), hasLength(100));
+      expect((await storage.getFeedHistory()), hasLength(105));
+    },
+  );
+
+  test(
+    'large persisted history survives loading, old backfill and deletion',
+    () async {
+      final seed = [
+        for (var index = 0; index < 250; index++)
+          FeedRecord(
+            id: 'retained-$index',
+            time: now.subtract(Duration(hours: index + 1)),
+          ),
+      ];
+      // Existing JSON remains readable even when it was not saved in order.
+      await storage.setFeedHistory(seed.reversed.toList());
+      final provider = createProvider();
+      addTearDown(provider.dispose);
+      await provider.ready;
+      expect(
+        provider.feedHistory.map((record) => record.id),
+        seed.map((record) => record.id),
+      );
+      expect(provider.feedHistory, hasLength(250));
+      expect(
+        provider.feedHistory.first.intervalFromPrevious,
+        const Duration(hours: 1),
+      );
+      final deadline = provider.nextFeedTime;
+
+      final oldestTime = seed.last.time.subtract(const Duration(days: 7));
+      await provider.addFeedRecordWithTime(oldestTime);
+      expect(provider.feedHistory, hasLength(251));
+      expect(provider.feedHistory.last.time, oldestTime);
+      expect(
+        provider.feedHistory[249].intervalFromPrevious,
+        const Duration(days: 7),
+      );
+      expect(provider.feedHistory.last.intervalFromPrevious, isNull);
+      expect(provider.nextFeedTime, deadline);
+
+      await provider.deleteFeedRecord(120);
+      expect(provider.feedHistory, hasLength(250));
+      expect(
+        provider.feedHistory.any((record) => record.id == 'retained-120'),
+        isFalse,
+      );
+      expect(
+        provider.feedHistory[119].intervalFromPrevious,
+        const Duration(hours: 2),
+      );
+      final persisted = await storage.getFeedHistory();
+      expect(
+        persisted.map((record) => record.toJson()),
+        provider.feedHistory.map((record) => record.toJson()),
+      );
+
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(
+        restored.feedHistory.map((record) => record.toJson()),
+        provider.feedHistory.map((record) => record.toJson()),
+      );
+      expect(restored.feedHistory.last.time, oldestTime);
+      expect(restored.nextFeedTime, deadline);
+    },
+  );
+
+  test(
+    'legacy storage additions also preserve all records and intervals',
+    () async {
+      final seed = [
+        for (var index = 0; index < 120; index++)
+          FeedRecord(
+            id: 'storage-$index',
+            time: now.subtract(Duration(hours: index + 1)),
+          ),
+      ];
+      await storage.setFeedHistory(seed);
+      final old = FeedRecord(
+        id: 'old-backfill',
+        time: seed.last.time.subtract(const Duration(days: 2)),
+      );
+      await storage.addFeedRecord(old);
+      final saved = await storage.getFeedHistory();
+      expect(saved, hasLength(121));
+      expect(saved.map((record) => record.id), [
+        ...seed.map((record) => record.id),
+        old.id,
+      ]);
+      expect(saved[119].intervalFromPrevious, const Duration(days: 2));
+      expect(saved.last.intervalFromPrevious, isNull);
+      expect(await storage.getLastFeedTime(), seed.first.time);
     },
   );
 

@@ -11,6 +11,7 @@ import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
 
 import '../widgets/landscape_feed_panel.dart';
+import '../widgets/countdown_text.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isActive;
@@ -282,17 +283,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                     Flexible(
                                       child: FittedBox(
                                         fit: BoxFit.scaleDown,
-                                        child: Text(
+                                        child: CountdownText(
                                           TimeUtils.formatDuration(
                                             feed.timeRemaining,
                                           ),
-                                          style: TextStyle(
-                                            fontSize: landscape ? 112 : 64,
-                                            color: AppPalette.dark.textPrimary,
-                                            fontFeatures: const [
-                                              FontFeature.tabularFigures(),
-                                            ],
-                                          ),
+                                          fontSize: landscape ? 112 : 64,
+                                          color: AppPalette.dark.primary,
                                         ),
                                       ),
                                     ),

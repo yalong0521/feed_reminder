@@ -16,10 +16,10 @@ import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
-import 'package:feed_reminder/widgets/app_glass.dart';
+import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:feed_reminder/widgets/countdown_scale.dart';
 
 class _Audio extends AudioService {
   @override
@@ -108,7 +108,7 @@ void _expectNoMaterialInteractions() {
   );
 }
 
-Color _solidGlassColor(WidgetTester tester, Finder surface) => tester
+Color _solidSurfaceColor(WidgetTester tester, Finder surface) => tester
     .widget<Material>(
       find.descendant(of: surface, matching: find.byType(Material)).first,
     )
@@ -132,6 +132,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   Brightness brightness = Brightness.light,
   FakeViewPadding padding = FakeViewPadding.zero,
   StorageService? storageOverride,
+  DateTime Function()? clock,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -172,6 +173,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
     audioService: audio,
     notificationService: notifications,
     startTimer: false,
+    clock: clock,
   );
   final settings = SettingsProvider(storage: storage);
   await Future.wait([feed.ready, settings.ready]);
@@ -192,6 +194,79 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
 }
 
 void main() {
+  testWidgets('countdown scale follows time, interval changes and backfill', (
+    tester,
+  ) async {
+    var now = DateTime(2026, 9, 27, 12);
+    final app = await _mount(
+      tester,
+      size: const Size(844, 390),
+      clock: () => now,
+      seededRecords: [
+        FeedRecord(time: now.subtract(const Duration(minutes: 90))),
+      ],
+    );
+    double progress() =>
+        tester.widget<CountdownScale>(find.byType(CountdownScale)).progress;
+    expect(progress(), .5);
+
+    now = now.add(const Duration(minutes: 45));
+    await app.feed.refresh();
+    await tester.pumpAndSettle();
+    expect(progress(), .25);
+
+    await app.settings.setFeedInterval(270);
+    await tester.pumpAndSettle();
+    expect(progress(), .5);
+
+    await app.feed.addFeedRecordWithTime(
+      now.subtract(const Duration(minutes: 27)),
+    );
+    await tester.pumpAndSettle();
+    expect(progress(), .9);
+
+    now = now.add(const Duration(minutes: 243));
+    await app.feed.refresh();
+    await tester.pumpAndSettle();
+    expect(progress(), 0);
+    await app.feed.stopAlert();
+    await tester.pumpAndSettle();
+    expect(progress(), 0);
+
+    now = now.add(const Duration(minutes: 10));
+    await app.feed.refresh();
+    await tester.pumpAndSettle();
+    expect(progress(), 0);
+
+    now = DateTime(2026, 9, 27, 11);
+    await app.feed.refresh();
+    await tester.pumpAndSettle();
+    expect(
+      progress(),
+      1,
+      reason: 'A clock correction cannot overfill the scale.',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('empty countdown scale fills on swipe and restores on undo', (
+    tester,
+  ) async {
+    await _mount(tester, clock: () => DateTime(2026, 9, 27, 12));
+    double progress() =>
+        tester.widget<CountdownScale>(find.byType(CountdownScale)).progress;
+    expect(progress(), 0);
+    await _slideToRecord(tester);
+    await tester.pumpAndSettle();
+    expect(progress(), 1);
+    await tester.tap(find.byKey(const ValueKey('feed-slide-undo')));
+    await tester.pumpAndSettle();
+    expect(progress(), 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
     'recording requires a completed right swipe from the thumb and stays inline',
     (tester) async {
@@ -478,8 +553,96 @@ void main() {
     },
   );
 
+  testWidgets('slider press scales artwork and drag carries the gradient', (
+    tester,
+  ) async {
+    final app = await _mount(tester, size: const Size(844, 390));
+    final thumb = find.byKey(const ValueKey('feed-slide-thumb'));
+    final artwork = find.byKey(const ValueKey('feed-slide-thumb-visual'));
+    final fill = find.byKey(const ValueKey('feed-slide-fill'));
+    final track = tester.getRect(
+      find.byKey(const ValueKey('feed-slide-track')),
+    );
+    final originalTarget = tester.getRect(thumb);
+    final originalArtwork = tester.getRect(artwork);
+    final originalFill = tester.getRect(fill);
+    final initialGradient =
+        (tester.widget<DecoratedBox>(fill).decoration as BoxDecoration)
+            .gradient;
+    final press = await tester.startGesture(originalTarget.center);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(tester.getRect(artwork).width, lessThan(originalArtwork.width));
+    expect(
+      tester.getRect(thumb),
+      originalTarget,
+      reason: 'Press feedback must not shrink the touch target.',
+    );
+    expect(app.feed.feedHistory, isEmpty);
+
+    await press.moveBy(const Offset(24, 0));
+    await press.moveBy(Offset((track.width - 64) * .45 - 24, 0));
+    await tester.pump();
+    final movedFill = tester.getRect(fill);
+    expect(movedFill.width, greaterThan(originalFill.width));
+    expect(
+      movedFill.right - tester.getRect(thumb).right,
+      closeTo(6, .1),
+      reason: 'The gradient edge follows the handle, with the track inset.',
+    );
+    expect(
+      (tester.widget<DecoratedBox>(fill).decoration as BoxDecoration).gradient,
+      isNot(initialGradient),
+    );
+    expect(tester.getRect(artwork).width, lessThan(originalArtwork.width));
+    expect(app.feed.feedHistory, isEmpty);
+
+    await press.up();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(artwork).width, closeTo(originalArtwork.width, .01));
+    expect(tester.getRect(fill).width, closeTo(originalFill.width, .01));
+    expect(app.feed.feedHistory, isEmpty);
+
+    final cancelled = await tester.startGesture(tester.getCenter(thumb));
+    await tester.pumpAndSettle();
+    await cancelled.cancel();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(artwork).width, closeTo(originalArtwork.width, .01));
+    expect(app.feed.feedHistory, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
-    'glass controls respond to press and keyboard without activating when disabled',
+    'reduced motion keeps slider feedback immediate without scaling',
+    (tester) async {
+      final app = await _mount(tester, size: const Size(844, 390));
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpAndSettle();
+      final thumb = find.byKey(const ValueKey('feed-slide-thumb'));
+      final artwork = find.byKey(const ValueKey('feed-slide-thumb-visual'));
+      final originalArtwork = tester.getRect(artwork);
+      final press = await tester.startGesture(tester.getCenter(thumb));
+      await tester.pump();
+      expect(tester.getRect(artwork), originalArtwork);
+      await press.moveBy(const Offset(60, 0));
+      await tester.pump();
+      expect(tester.getRect(artwork).width, originalArtwork.width);
+      await press.cancel();
+      await tester.pump();
+      expect(tester.getRect(artwork), originalArtwork);
+      expect(app.feed.feedHistory, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'paper controls respond to press and keyboard without activating when disabled',
     (tester) async {
       var activations = 0;
       var enabled = true;
@@ -619,7 +782,7 @@ void main() {
   );
 
   testWidgets(
-    'every app flow uses Cupertino or glass actions without Material ripples',
+    'every app flow uses Cupertino or paper actions without Material ripples',
     (tester) async {
       final app = await _mount(tester, seeded: true);
       _expectNoMaterialInteractions();
@@ -695,22 +858,34 @@ void main() {
   );
 
   testWidgets(
-    'unavailable glass shaders keep an opaque, accessible recording action',
+    'paper recording action remains opaque, accessible and high contrast',
     (tester) async {
-      // Unit tests deliberately omit shader startup. This exercises the same
-      // decoration fallback used if shader initialization fails on a device.
-      expect(AppGlass.isReady, isFalse);
       final semantics = tester.ensureSemantics();
       try {
         final app = await _mount(tester, size: const Size(640, 320));
         final dock = find.byKey(const ValueKey('feed-control-dock'));
         expect(dock, findsOneWidget);
-        expect(find.byType(GlassContainer), findsNothing);
+        expect(find.byType(BackdropFilter), findsNothing);
+        final slider = find.byType(FeedButton);
+        final palette = AppPalette.of(tester.element(slider));
         final surface = tester.widget<Material>(
-          find.descendant(of: dock, matching: find.byType(Material)).first,
+          find.descendant(of: slider, matching: find.byType(Material)).first,
         );
-        expect(surface.color, AppPalette.light.surface);
+        expect(surface.color, palette.softGreen);
         expect(surface.color!.a, 1);
+        final foreground = tester
+            .widget<Text>(
+              find.descendant(of: slider, matching: find.byType(Text)).first,
+            )
+            .style!
+            .color!;
+        expect(foreground, palette.textSecondary);
+        final foregroundLuminance = foreground.computeLuminance();
+        final backgroundLuminance = surface.color!.computeLuminance();
+        final contrast = foregroundLuminance > backgroundLuminance
+            ? (foregroundLuminance + .05) / (backgroundLuminance + .05)
+            : (backgroundLuminance + .05) / (foregroundLuminance + .05);
+        expect(contrast, greaterThanOrEqualTo(4.5));
         final data = tester
             .getSemantics(find.bySemanticsLabel('滑动记录这次喂奶'))
             .getSemanticsData();
@@ -735,7 +910,7 @@ void main() {
   );
 
   testWidgets(
-    'high contrast removes decorative imagery and keeps dark and light glass controls usable',
+    'high contrast keeps paper controls readable in dark and light themes',
     (tester) async {
       final app = await _mount(
         tester,
@@ -752,28 +927,28 @@ void main() {
         await tester.pumpAndSettle();
         final dock = find.byKey(const ValueKey('feed-control-dock'));
         expect(MediaQuery.highContrastOf(tester.element(dock)), isTrue);
-        expect(find.byType(GlassContainer), findsNothing);
+        expect(find.byType(BackdropFilter), findsNothing);
         expect(
           find.descendant(
-            of: find.byType(AppGlassBackdrop),
+            of: find.byType(AppBackdrop),
             matching: find.byType(Image),
           ),
           findsNothing,
         );
-        for (final element in find.byType(AppGlassSurface).evaluate()) {
-          final glass = element.widget as AppGlassSurface;
+        for (final element in find.byType(AppSurface).evaluate()) {
+          final paper = element.widget as AppSurface;
           final palette = AppPalette.of(element);
           final material = tester.widget<Material>(
             find
                 .descendant(
-                  of: find.byWidget(glass),
+                  of: find.byWidget(paper),
                   matching: find.byType(Material),
                 )
                 .first,
           );
           expect(
             material.color,
-            glass.tinted ? palette.primary : palette.surface,
+            paper.color ?? (paper.tinted ? palette.primary : palette.surface),
           );
           expect(material.color!.a, 1);
         }
@@ -820,6 +995,41 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  testWidgets('next reminder stays attached to the scale as height changes', (
+    tester,
+  ) async {
+    await _mount(tester, size: const Size(1280, 390), seeded: true);
+    final nextReminder = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          (widget.textSpan?.toPlainText().startsWith('下一次  ') ?? false),
+    );
+    double? previousTop;
+    for (final height in [390.0, 480.0, 519.0, 520.0, 521.0, 640.0, 720.0]) {
+      tester.view.physicalSize = Size(1280, height);
+      await tester.pumpAndSettle();
+      final scale = tester.getRect(find.byType(CountdownScale));
+      final next = tester.getRect(nextReminder);
+      expect(
+        next.top - scale.bottom,
+        inInclusiveRange(0, 16),
+        reason:
+            'The next feeding time should stay just below the scale at height $height.',
+      );
+      if (height == 520 || height == 521) {
+        expect(
+          (next.top - previousTop!).abs(),
+          lessThan(2),
+          reason:
+              'A one-pixel resize must not move the reminder to another layout position.',
+        );
+      }
+      previousTop = next.top;
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('settings update the live countdown without another feeding', (
     tester,
@@ -916,6 +1126,69 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.feed.feedHistory, hasLength(2));
       expect(app.feed.nextFeedTime, deadline);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'rotation and theme changes preserve the saved slider and its undo target',
+    (tester) async {
+      final app = await _mount(tester, seeded: true);
+      final originalIds = app.feed.feedHistory
+          .map((record) => record.id)
+          .toList();
+      final originalDeadline = app.feed.nextFeedTime;
+      await _slideToRecord(tester);
+      await tester.pumpAndSettle();
+
+      final slider = find.byType(FeedButton);
+      final savedSliderState = tester.state(slider);
+      final savedIds = app.feed.feedHistory.map((record) => record.id).toList();
+      final insertedId = savedIds.singleWhere(
+        (id) => !originalIds.contains(id),
+      );
+      final savedDeadline = app.feed.nextFeedTime;
+      final undo = find.byKey(const ValueKey('feed-slide-undo'));
+      expect(savedIds, hasLength(originalIds.length + 1));
+
+      for (final configuration in [
+        (size: const Size(740, 360), brightness: Brightness.dark),
+        (size: const Size(390, 844), brightness: Brightness.light),
+        (size: const Size(844, 390), brightness: Brightness.light),
+        (size: const Size(390, 844), brightness: Brightness.dark),
+      ]) {
+        tester.view.physicalSize = configuration.size;
+        tester.platformDispatcher.platformBrightnessTestValue =
+            configuration.brightness;
+        await tester.pumpAndSettle();
+
+        expect(tester.state(slider), same(savedSliderState));
+        expect(
+          Theme.of(tester.element(slider)).brightness,
+          configuration.brightness,
+        );
+        expect(undo.hitTestable(), findsOneWidget);
+        expect(find.text('已记录'), findsOneWidget);
+        expect(app.feed.feedHistory.map((record) => record.id), savedIds);
+        expect(app.feed.nextFeedTime, savedDeadline);
+        expect(tester.takeException(), isNull);
+      }
+
+      await tester.tap(undo);
+      await tester.pumpAndSettle();
+      expect(tester.state(slider), same(savedSliderState));
+      expect(app.feed.feedHistory.map((record) => record.id), originalIds);
+      expect(
+        app.feed.feedHistory.any((record) => record.id == insertedId),
+        isFalse,
+      );
+      expect(app.feed.nextFeedTime, originalDeadline);
+      expect(undo, findsNothing);
+      expect(
+        find.byKey(const ValueKey('feed-slide-thumb')).hitTestable(),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -1481,7 +1754,7 @@ void main() {
       final backfill = find.byType(AddFeedRecordDialog);
       expect(backfill, findsOneWidget);
       expect(
-        _solidGlassColor(
+        _solidSurfaceColor(
           tester,
           find.byKey(const ValueKey('add-feed-record-surface')),
         ),
@@ -1498,10 +1771,10 @@ void main() {
       );
       expect(Theme.of(datePickerContext).brightness, Brightness.dark);
       expect(
-        _solidGlassColor(
+        _solidSurfaceColor(
           tester,
           find
-              .ancestor(of: datePicker, matching: find.byType(AppGlassSurface))
+              .ancestor(of: datePicker, matching: find.byType(AppSurface))
               .first,
         ),
         AppPalette.dark.surface,
@@ -1519,10 +1792,10 @@ void main() {
       );
       expect(Theme.of(timePickerContext).brightness, Brightness.dark);
       expect(
-        _solidGlassColor(
+        _solidSurfaceColor(
           tester,
           find
-              .ancestor(of: timePicker, matching: find.byType(AppGlassSurface))
+              .ancestor(of: timePicker, matching: find.byType(AppSurface))
               .first,
         ),
         AppPalette.dark.surface,
@@ -1532,7 +1805,7 @@ void main() {
 
       await setSystemBrightness(Brightness.light);
       expect(
-        _solidGlassColor(
+        _solidSurfaceColor(
           tester,
           find.byKey(const ValueKey('add-feed-record-surface')),
         ),
@@ -1540,7 +1813,7 @@ void main() {
       );
       expect(
         tester.widget<Text>(find.text('添加喂奶记录')).style?.color,
-        AppPalette.light.textPrimary,
+        AppPalette.light.primary,
       );
       await tester.tap(find.byKey(const ValueKey('add-feed-cancel')));
       await tester.pumpAndSettle();
@@ -1553,7 +1826,7 @@ void main() {
       expect(find.text('喂奶记录'), findsOneWidget);
       expect(
         tester.widget<Text>(find.text('喂奶记录')).style?.color,
-        AppPalette.dark.textPrimary,
+        AppPalette.dark.primary,
       );
       expectUnchangedData();
 
@@ -1565,7 +1838,7 @@ void main() {
       expect(find.text('提醒偏好'), findsOneWidget);
       expect(
         tester.widget<Text>(find.text('提醒偏好')).style?.color,
-        AppPalette.dark.textPrimary,
+        AppPalette.dark.primary,
       );
       await tester.tap(find.byKey(const ValueKey('nav-home')));
       await tester.pumpAndSettle();

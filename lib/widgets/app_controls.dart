@@ -5,40 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/constants.dart';
-import 'app_glass.dart';
-
-class AppProgressTrack extends StatelessWidget {
-  const AppProgressTrack({
-    super.key,
-    required this.value,
-    required this.color,
-    required this.backgroundColor,
-    this.height = 4,
-  });
-  final double value;
-  final Color color;
-  final Color backgroundColor;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(height),
-    child: SizedBox(
-      height: height,
-      child: ColoredBox(
-        color: backgroundColor,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: FractionallySizedBox(
-            widthFactor: value.clamp(0, 1),
-            heightFactor: 1,
-            child: ColoredBox(color: color),
-          ),
-        ),
-      ),
-    ),
-  );
-}
+import 'app_surface.dart';
 
 /// One interaction language: a quiet press, with keyboard and reader support.
 class AppPressable extends StatefulWidget {
@@ -65,6 +32,13 @@ class _AppPressableState extends State<AppPressable> {
   bool _pressed = false;
   bool _focused = false;
   bool _hovered = false;
+
+  @override
+  void didUpdateWidget(AppPressable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Disabling removes onTapUp, so an in-flight press may never release here.
+    if (widget.onPressed == null) _pressed = false;
+  }
 
   void _press(bool pressed) {
     if (_pressed != pressed) setState(() => _pressed = pressed);
@@ -130,7 +104,7 @@ class _AppPressableState extends State<AppPressable> {
               child: DecoratedBox(
                 position: DecorationPosition.foreground,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(16),
                   border: _focused
                       ? Border.all(
                           color: AppPalette.of(context).primary,
@@ -155,11 +129,11 @@ class AppButton extends StatelessWidget {
     this.onPressed,
     this.filled = false,
     this.destructive = false,
-    this.glass = true,
+    this.surface = true,
     this.compact = false,
     this.padding,
     this.semanticLabel,
-    this.radius = 24,
+    this.radius = 16,
     this.selected,
   });
 
@@ -167,7 +141,7 @@ class AppButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool filled;
   final bool destructive;
-  final bool glass;
+  final bool surface;
   final bool compact;
   final EdgeInsetsGeometry? padding;
   final String? semanticLabel;
@@ -197,7 +171,7 @@ class AppButton extends StatelessWidget {
               style: TextStyle(
                 color: foreground,
                 fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
               ),
               child: child,
             ),
@@ -209,8 +183,8 @@ class AppButton extends StatelessWidget {
       onPressed: onPressed,
       semanticLabel: semanticLabel,
       selected: selected,
-      child: glass
-          ? AppGlassSurface(radius: radius, tinted: filled, child: content)
+      child: surface
+          ? AppSurface(radius: radius, tinted: filled, child: content)
           : content,
     );
   }
@@ -257,13 +231,30 @@ void showAppNotice(
           final colors = AppPalette.of(context);
           return CupertinoAlertDialog(
             key: const ValueKey('app-notice-dialog'),
-            title: Text('操作未完成', style: TextStyle(color: colors.textPrimary)),
+            title: Column(
+              children: [
+                Icon(
+                  CupertinoIcons.exclamationmark_circle,
+                  color: colors.alert,
+                  size: 30,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '操作未完成',
+                  style: TextStyle(color: colors.textPrimary, fontSize: 20),
+                ),
+              ],
+            ),
             content: Semantics(
               liveRegion: true,
               child: Text(
                 request.message,
                 key: const ValueKey('app-notice-message'),
-                style: TextStyle(color: colors.textPrimary, height: 1.5),
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  height: 1.6,
+                  fontSize: 15,
+                ),
               ),
             ),
             actions: [
@@ -403,9 +394,9 @@ Future<DateTime?> showAppDateTimePicker(
           padding: const EdgeInsets.all(16),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
-            child: AppGlassSurface(
-              radius: 32,
-              padding: const EdgeInsets.all(16),
+            child: AppSurface(
+              radius: 24,
+              padding: const EdgeInsets.all(20),
               child: DefaultTextStyle(
                 style: TextStyle(
                   fontFamily: 'Inter',
@@ -418,7 +409,7 @@ Future<DateTime?> showAppDateTimePicker(
                     Row(
                       children: [
                         AppButton(
-                          glass: false,
+                          surface: false,
                           compact: true,
                           onPressed: () => close(context),
                           child: const Text('取消'),
@@ -437,6 +428,13 @@ Future<DateTime?> showAppDateTimePicker(
                           child: const Text('完成'),
                         ),
                       ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Divider(
+                        color: AppPalette.of(context).border,
+                        height: 1,
+                      ),
                     ),
                     SizedBox(
                       height: MediaQuery.sizeOf(context).height < 400

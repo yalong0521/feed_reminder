@@ -1,7 +1,8 @@
 import 'dart:ui' as ui;
 
-import 'package:feed_reminder/widgets/glass_countdown_text.dart';
+import 'package:feed_reminder/widgets/countdown_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _countdownKey = ValueKey('test-countdown');
@@ -15,7 +16,7 @@ Widget _host(
   TextScaler textScaler = TextScaler.noScaling,
   bool constrained = false,
 }) {
-  Widget countdown = GlassCountdownText(
+  Widget countdown = CountdownText(
     text,
     key: _countdownKey,
     color: _color,
@@ -41,63 +42,74 @@ Widget _host(
 }
 
 void main() {
-  testWidgets(
-    'glass numerals expose one readable label without a live ticker',
-    (tester) async {
-      final semantics = tester.ensureSemantics();
-      try {
-        const label = '距离下次喂奶还有 2 小时 34 分 56 秒';
-        await tester.pumpWidget(_host('02:34:56', semanticLabel: label));
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    // Exercise the actual bundled serif, not the equal-width test font.
+    final loader = FontLoader('JournalSerif')
+      ..addFont(rootBundle.load('assets/fonts/Tinos-Regular.ttf'))
+      ..addFont(rootBundle.load('assets/fonts/Tinos-Bold.ttf'));
+    await loader.load();
+  });
 
-        final labelFinder = find.bySemanticsLabel(label);
-        expect(labelFinder, findsOneWidget);
-        final data = tester.getSemantics(labelFinder).getSemanticsData();
-        expect(data.flagsCollection.isLiveRegion, isFalse);
-        expect(data.flagsCollection.isButton, isFalse);
-        expect(data.hasAction(ui.SemanticsAction.tap), isFalse);
-        expect(find.byType(BackdropFilter), findsOneWidget);
+  testWidgets('countdown exposes one readable label without a live ticker', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      const label = '距离下次喂奶还有 2 小时 34 分 56 秒';
+      await tester.pumpWidget(_host('02:34:56', semanticLabel: label));
 
-        await tester.pump();
-        expect(tester.binding.transientCallbackCount, 0);
-        expect(tester.binding.hasScheduledFrame, isFalse);
-        await tester.pump(const Duration(seconds: 30));
-        expect(labelFinder, findsOneWidget);
-        expect(tester.binding.transientCallbackCount, 0);
-        expect(tester.binding.hasScheduledFrame, isFalse);
+      final labelFinder = find.bySemanticsLabel(label);
+      expect(labelFinder, findsOneWidget);
+      final data = tester.getSemantics(labelFinder).getSemanticsData();
+      expect(data.flagsCollection.isLiveRegion, isFalse);
+      expect(data.flagsCollection.isButton, isFalse);
+      expect(data.hasAction(ui.SemanticsAction.tap), isFalse);
+      expect(find.byType(BackdropFilter), findsNothing);
+
+      await tester.pump();
+      expect(tester.binding.transientCallbackCount, 0);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.pump(const Duration(seconds: 30));
+      expect(labelFinder, findsOneWidget);
+      expect(tester.binding.transientCallbackCount, 0);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('high contrast strengthens the time without adding decoration', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(_host('01:23:45'));
+      final normalStyle = tester.widget<Text>(find.text('01:23:45')).style!;
+      expect(normalStyle.fontWeight, FontWeight.w400);
+      expect(find.byType(BackdropFilter), findsNothing);
+
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(
+          _host('01:23:45', highContrast: true, brightness: brightness),
+        );
+        expect(find.byType(BackdropFilter), findsNothing);
+        expect(find.bySemanticsLabel('01:23:45'), findsOneWidget);
+        final style = tester.widget<Text>(find.text('01:23:45')).style!;
+        expect(style.fontWeight, FontWeight.w700);
+        expect(style.color, _color);
+        expect(tester.getSize(find.byKey(_countdownKey)).width, greaterThan(0));
         expect(tester.takeException(), isNull);
-      } finally {
-        semantics.dispose();
       }
-    },
-  );
 
-  testWidgets(
-    'system high contrast removes glass blur without hiding the time',
-    (tester) async {
-      final semantics = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(_host('01:23:45'));
-        final normalSize = tester.getSize(find.byKey(_countdownKey));
-        expect(find.byType(BackdropFilter), findsOneWidget);
-
-        for (final brightness in Brightness.values) {
-          await tester.pumpWidget(
-            _host('01:23:45', highContrast: true, brightness: brightness),
-          );
-          expect(find.byType(BackdropFilter), findsNothing);
-          expect(find.bySemanticsLabel('01:23:45'), findsOneWidget);
-          expect(tester.getSize(find.byKey(_countdownKey)), normalSize);
-          expect(tester.takeException(), isNull);
-        }
-
-        await tester.pumpWidget(_host('01:23:44'));
-        expect(find.byType(BackdropFilter), findsOneWidget);
-        expect(find.bySemanticsLabel('01:23:44'), findsOneWidget);
-      } finally {
-        semantics.dispose();
-      }
-    },
-  );
+      await tester.pumpWidget(_host('01:23:44'));
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(find.bySemanticsLabel('01:23:44'), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
 
   testWidgets(
     'tabular numerals stay stable and long hours scale into a phone',
@@ -146,9 +158,7 @@ void main() {
     },
   );
 
-  testWidgets('unknown formats fall back to readable text and can recover', (
-    tester,
-  ) async {
+  testWidgets('empty and localized formats remain readable', (tester) async {
     for (final text in ['', '计时暂停', '1 天 02:03:04']) {
       await tester.pumpWidget(_host(text));
       expect(find.text(text), findsOneWidget);
@@ -157,10 +167,10 @@ void main() {
     }
 
     await tester.pumpWidget(_host('--:--:--'));
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
     expect(tester.getSize(find.byKey(_countdownKey)).width, greaterThan(0));
     await tester.pumpWidget(_host('00:00:01'));
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -21,7 +21,11 @@ abstract final class AppTheme {
       outline: p.textTertiary,
       outlineVariant: p.border,
     );
-    final base = ThemeData(colorScheme: scheme, fontFamily: 'Inter');
+    final base = ThemeData(
+      colorScheme: scheme,
+      fontFamily: 'Inter',
+      fontFamilyFallback: const ['JournalChinese'],
+    );
     return base.copyWith(
       extensions: <ThemeExtension<dynamic>>[p],
       scaffoldBackgroundColor: p.background,
@@ -49,21 +53,24 @@ abstract final class AppTheme {
         primaryColor: p.primary,
         primaryContrastingColor: p.onPrimary,
         scaffoldBackgroundColor: p.background,
-        barBackgroundColor: p.surface.withValues(alpha: .7),
+        barBackgroundColor: p.surface,
         textTheme: CupertinoTextThemeData(
           primaryColor: p.primary,
           textStyle: TextStyle(
             fontFamily: 'Inter',
+            fontFamilyFallback: const ['JournalChinese'],
             fontSize: 16,
             color: p.textPrimary,
           ),
           pickerTextStyle: TextStyle(
             fontFamily: 'Inter',
+            fontFamilyFallback: const ['JournalChinese'],
             fontSize: 21,
             color: p.textPrimary,
           ),
           dateTimePickerTextStyle: TextStyle(
             fontFamily: 'Inter',
+            fontFamilyFallback: const ['JournalChinese'],
             fontSize: 20,
             color: p.textPrimary,
           ),

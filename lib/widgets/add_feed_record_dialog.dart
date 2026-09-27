@@ -6,7 +6,7 @@ import '../providers/feed_provider.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
-import 'app_glass.dart';
+import 'app_surface.dart';
 
 class AddFeedRecordDialog extends StatefulWidget {
   const AddFeedRecordDialog({super.key});
@@ -145,6 +145,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
       label: '喂奶时间',
       value: TimeUtils.formatTime(_selectedDate),
       icon: CupertinoIcons.clock,
+      emphasizeValue: true,
       compact: compact,
       onTap: disabled ? null : () => _pick(date: false),
     );
@@ -155,43 +156,40 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        insetPadding: const EdgeInsets.all(24),
+        insetPadding: EdgeInsets.all(compact ? 20 : 24),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: compact ? 600 : 440),
-          child: AppGlassSurface(
+          constraints: BoxConstraints(maxWidth: compact ? 620 : 460),
+          child: AppSurface(
             key: const ValueKey('add-feed-record-surface'),
-            radius: 32,
+            radius: 18,
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(compact ? 20 : 24),
+              padding: EdgeInsets.all(compact ? 18 : 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!compact) ...[
-                    AppGlassSurface(
-                      radius: 18,
-                      padding: const EdgeInsets.all(12),
-                      child: Icon(
-                        CupertinoIcons.calendar_badge_plus,
-                        color: colors.primary,
-                        size: 24,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          AppStrings.addFeedTitle,
+                          style: TextStyle(
+                            fontFamily: 'JournalChinese',
+                            fontSize: compact ? 24 : 28,
+                            height: 1.3,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: .4,
+                            color: colors.primary,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  Text(
-                    AppStrings.addFeedTitle,
-                    style: TextStyle(
-                      fontSize: compact ? 24 : 26,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -.5,
-                      color: colors.textPrimary,
-                    ),
+                    ],
                   ),
                   if (!compact) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '选择实际喂奶时间，补全宝宝的日常记录。',
+                      '补上实际喂奶的日期与时间。',
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: 14,
@@ -199,34 +197,51 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                       ),
                     ),
                   ],
-                  SizedBox(height: compact ? 14 : 24),
+                  Container(
+                    height: 1,
+                    color: colors.border,
+                    margin: EdgeInsets.symmetric(vertical: compact ? 8 : 24),
+                  ),
                   if (compact)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(child: dateField),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 16),
                         Expanded(child: timeField),
                       ],
                     )
                   else ...[
                     dateField,
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     timeField,
                   ],
-                  SizedBox(height: compact ? 12 : 16),
+                  SizedBox(height: compact ? 8 : 16),
                   if (error != null)
                     Semantics(
                       liveRegion: true,
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: Text(
-                          error,
-                          style: TextStyle(
-                            color: colors.alert,
-                            fontSize: 13,
-                            height: 1.5,
-                          ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              CupertinoIcons.exclamationmark_circle,
+                              color: colors.alert,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                error,
+                                style: TextStyle(
+                                  color: colors.alert,
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -251,24 +266,31 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                       ),
                     ],
                   ),
-                  SizedBox(height: compact ? 16 : 24),
+                  SizedBox(height: compact ? 12 : 24),
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final cancel = AppButton(
                         key: const ValueKey('add-feed-cancel'),
-                        glass: false,
+                        radius: 28,
                         onPressed: _saving ? null : () => _close(false),
-                        child: const Text(AppStrings.cancel),
+                        child: const Text(
+                          AppStrings.cancel,
+                          style: TextStyle(fontFamily: 'JournalChinese'),
+                        ),
                       );
                       final save = AppButton(
                         key: const ValueKey('add-feed-save'),
                         filled: true,
+                        radius: 28,
                         onPressed: disabled || isFuture ? null : _save,
                         child: _saving
                             ? CupertinoActivityIndicator(
                                 color: colors.onPrimary,
                               )
-                            : const Text('保存记录'),
+                            : const Text(
+                                '保存记录',
+                                style: TextStyle(fontFamily: 'JournalChinese'),
+                              ),
                       );
                       if (constraints.maxWidth < 300 &&
                           MediaQuery.textScalerOf(context).scale(16) > 20) {
@@ -304,12 +326,14 @@ class _PickerField extends StatelessWidget {
     required this.icon,
     required this.onTap,
     required this.compact,
+    this.emphasizeValue = false,
   });
   final String label;
   final String value;
   final IconData icon;
   final VoidCallback? onTap;
   final bool compact;
+  final bool emphasizeValue;
 
   @override
   Widget build(BuildContext context) {
@@ -318,30 +342,51 @@ class _PickerField extends StatelessWidget {
       onPressed: onTap,
       semanticLabel: '$label，$value',
       excludeSemantics: true,
-      child: AppGlassSurface(
-        radius: 20,
-        padding: EdgeInsets.all(compact ? 12 : 16),
+      child: Container(
+        padding: EdgeInsets.all(compact ? 12 : 18),
+        decoration: BoxDecoration(
+          color: colors.background,
+          border: Border(bottom: BorderSide(color: colors.border)),
+        ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            if (!compact) ...[
-              Icon(icon, size: 22, color: colors.primary),
-              const SizedBox(width: 14),
-            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, size: 15, color: colors.textSecondary),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: compact ? 4 : 10),
                   Text(
                     value,
                     style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: compact ? 16 : 17,
-                      fontWeight: FontWeight.w600,
+                      color: emphasizeValue
+                          ? colors.primary
+                          : colors.textPrimary,
+                      fontFamily: emphasizeValue
+                          ? 'JournalSerif'
+                          : 'JournalChinese',
+                      fontSize: emphasizeValue ? (compact ? 29 : 36) : 18,
+                      height: emphasizeValue ? 1 : 1.2,
+                      fontWeight: emphasizeValue
+                          ? FontWeight.w400
+                          : FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ],
@@ -369,7 +414,7 @@ Future<bool?> showAddFeedRecordDialog(BuildContext navigatorContext) async {
   final provider = navigatorContext.read<FeedProvider>();
   final pending = showGeneralDialog<bool>(
     context: navigatorContext,
-    barrierDismissible: false,
+    barrierDismissible: true,
     barrierLabel: '关闭补记',
     barrierColor: Colors.black.withValues(alpha: .3),
     transitionDuration: Duration(

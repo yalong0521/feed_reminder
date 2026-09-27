@@ -23,6 +23,10 @@ class SettingsProvider extends ChangeNotifier {
   String? _error;
 
   bool get isInitialized => _isInitialized;
+
+  /// Only a complete initial snapshot may replace the running reminder policy.
+  /// Save errors do not invalidate the fields that were already committed.
+  bool get isAvailable => _isInitialized && !_loadFailed;
   bool get isSaving => _pendingWrites > 0;
   String? get error => _error;
   ThemeMode get themeMode => _values.themeMode;

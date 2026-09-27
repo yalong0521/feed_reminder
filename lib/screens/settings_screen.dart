@@ -11,7 +11,7 @@ import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 import '../utils/constants.dart';
 import '../widgets/app_controls.dart';
-import '../widgets/app_glass.dart';
+import '../widgets/app_surface.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -216,11 +216,11 @@ class _SettingsScreenState extends State<SettingsScreen>
       bottom: false,
       child: SingleChildScrollView(
         key: const PageStorageKey('settings-scroll'),
-        padding: EdgeInsets.fromLTRB(24, compact ? 12 : 24, 24, 36),
+        padding: EdgeInsets.fromLTRB(24, compact ? 18 : 32, 24, 40),
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1040),
+            constraints: const BoxConstraints(maxWidth: 1120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -236,71 +236,27 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   ),
                 ],
-                SizedBox(height: compact ? 18 : 32),
+                SizedBox(height: compact ? 22 : 36),
                 _SettingsGrid(
                   children: [
                     _SettingsGroup(
                       icon: CupertinoIcons.clock,
                       title: '喂奶间隔',
-                      description: '根据最近一条喂奶记录，计算下次提醒。',
-                      footer: '支持 1–1440 分钟，也可以随时调整。',
+                      description: '下一次提醒，从最近一次喂奶开始计算。',
                       children: [
-                        Wrap(
-                          spacing: 14,
-                          runSpacing: 14,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Text(
-                              _intervalLabel(settings.feedIntervalMinutes),
-                              key: const ValueKey('interval-value'),
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -.8,
-                                color: colors.primary,
-                                height: 1.2,
-                              ),
-                            ),
-                            AppButton(
-                              key: const ValueKey('custom-interval-button'),
-                              compact: true,
-                              onPressed: busy
-                                  ? null
-                                  : () => _pickInterval(settings),
-                              child: const _ActionLabel(
-                                icon: CupertinoIcons.pencil,
-                                label: '自定义',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        Wrap(
-                          spacing: 9,
-                          runSpacing: 10,
-                          children: [
-                            for (final minutes in [120, 150, 180, 210, 240])
-                              _GlassOption(
-                                controlKey: ValueKey(
-                                  'interval-preset-$minutes',
-                                ),
-                                label: _presetLabel(minutes),
-                                selected:
-                                    settings.feedIntervalMinutes == minutes,
-                                onPressed: busy
-                                    ? null
-                                    : () => _save(
-                                        () => settings.setFeedInterval(minutes),
-                                      ),
-                              ),
-                          ],
+                        _IntervalPreference(
+                          minutes: settings.feedIntervalMinutes,
+                          busy: busy,
+                          onCustom: () => _pickInterval(settings),
+                          onSelect: (minutes) =>
+                              _save(() => settings.setFeedInterval(minutes)),
                         ),
                       ],
                     ),
                     _SettingsGroup(
                       icon: CupertinoIcons.moon_stars,
-                      title: '安静的夜晚',
-                      description: '夜间时段只在应用内显示提醒，保持安静。',
+                      title: '夜间时段',
+                      description: '保留屏幕提醒，把安静留给夜晚。',
                       footer: settings.nightStartTime == settings.nightEndTime
                           ? '开始与结束时间相同，当前不会进入夜间静音。'
                           : '支持跨越午夜，例如 22:00 至次日 06:00。',
@@ -317,61 +273,38 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 ),
                         ),
                         const _GroupSeparator(),
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final controls = [
-                              _TimeControl(
-                                controlKey: const ValueKey('night-start-time'),
-                                label: '开始时间',
-                                value: settings.nightStartTime,
-                                onTap: busy || !settings.nightModeEnabled
-                                    ? null
-                                    : () => _pickTime(
-                                        '开始时间',
-                                        settings.nightStartTime,
-                                        settings.setNightStartTime,
-                                      ),
-                              ),
-                              _TimeControl(
-                                controlKey: const ValueKey('night-end-time'),
-                                label: '结束时间',
-                                value: settings.nightEndTime,
-                                onTap: busy || !settings.nightModeEnabled
-                                    ? null
-                                    : () => _pickTime(
-                                        '结束时间',
-                                        settings.nightEndTime,
-                                        settings.setNightEndTime,
-                                      ),
-                              ),
-                            ];
-                            if (constraints.maxWidth < 350 ||
-                                MediaQuery.textScalerOf(context).scale(14) >
-                                    20) {
-                              return Column(
-                                children: [
-                                  controls.first,
-                                  const SizedBox(height: 12),
-                                  controls.last,
-                                ],
-                              );
-                            }
-                            return Row(
-                              children: [
-                                Expanded(child: controls.first),
-                                const SizedBox(width: 12),
-                                Expanded(child: controls.last),
-                              ],
-                            );
-                          },
+                        _TimeControl(
+                          controlKey: const ValueKey('night-start-time'),
+                          label: '开始时间',
+                          value: settings.nightStartTime,
+                          onTap: busy || !settings.nightModeEnabled
+                              ? null
+                              : () => _pickTime(
+                                  '开始时间',
+                                  settings.nightStartTime,
+                                  settings.setNightStartTime,
+                                ),
+                        ),
+                        const _GroupSeparator(),
+                        _TimeControl(
+                          controlKey: const ValueKey('night-end-time'),
+                          label: '结束时间',
+                          value: settings.nightEndTime,
+                          onTap: busy || !settings.nightModeEnabled
+                              ? null
+                              : () => _pickTime(
+                                  '结束时间',
+                                  settings.nightEndTime,
+                                  settings.setNightEndTime,
+                                ),
                         ),
                       ],
                     ),
                     _SettingsGroup(
                       icon: CupertinoIcons.bell,
                       title: '提醒声音',
-                      description: '选择适合当下环境的提醒方式。',
-                      footer: '试听只播放一次，不受夜间静音时段限制。',
+                      description: '用声音提醒，或只看一眼计时。',
+                      footer: '试听仅播放一次；夜间静音不影响试听。',
                       children: [
                         _ToggleRow(
                           controlKey: const ValueKey('sound-enabled-switch'),
@@ -403,9 +336,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   () => settings.setSoundLoopEnabled(value),
                                 ),
                         ),
-                        const SizedBox(height: 22),
+                        const _GroupSeparator(),
                         AppButton(
                           key: const ValueKey('sound-preview-button'),
+                          compact: true,
+                          radius: 6,
                           onPressed: _audioBusy || !settings.soundEnabled
                               ? null
                               : _togglePreview,
@@ -420,15 +355,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                     _SettingsGroup(
                       icon: CupertinoIcons.device_phone_portrait,
-                      title: '屏幕与显示',
-                      description: '让床头的计时屏幕也保持舒适。',
+                      title: '屏幕与外观',
+                      description: '白天清晰，入夜柔和。',
                       footer: '有喂奶记录且停留在计时页时，屏幕会保持常亮。切换页面或退出应用后恢复系统设置。',
                       children: [
                         Text(
                           '外观主题',
                           style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                            fontFamily: 'JournalChinese',
+                            fontWeight: FontWeight.w500,
                             color: colors.textPrimary,
                           ),
                         ),
@@ -446,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (ThemeMode.light, '浅色', CupertinoIcons.sun_max),
                               (ThemeMode.dark, '深色', CupertinoIcons.moon),
                             ])
-                              _GlassOption(
+                              _PreferenceOption(
                                 controlKey: ValueKey(
                                   'theme-mode-${option.$1.name}',
                                 ),
@@ -468,7 +404,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ),
                         const SizedBox(height: 10),
                         Text(
-                          '外观选择不影响夜间静音；防烧屏待机仍使用暗色时钟。',
+                          '外观与夜间静音独立；待机时使用暗色时钟。',
                           style: _hintStyle(context),
                         ),
                         const _GroupSeparator(),
@@ -491,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       _SettingsGroup(
                         icon: CupertinoIcons.checkmark_shield,
                         title: '系统提醒权限',
-                        description: '允许系统通知，才能在离开应用后接收提醒。',
+                        description: '离开应用后，也能收到下一次提醒。',
                         footer: defaultTargetPlatform == TargetPlatform.android
                             ? '未授权准时提醒时，系统可能延迟发送通知。'
                             : null,
@@ -549,11 +485,7 @@ class _SettingsHeader extends StatelessWidget {
         if (saving)
           CupertinoActivityIndicator(radius: 7, color: colors.primary)
         else
-          Icon(
-            CupertinoIcons.checkmark_circle,
-            size: 15,
-            color: colors.primary,
-          ),
+          Icon(CupertinoIcons.checkmark, size: 13, color: colors.textSecondary),
         const SizedBox(width: 7),
         Flexible(
           child: Text(saving ? '正在保存…' : '更改会自动保存', style: _hintStyle(context)),
@@ -563,30 +495,44 @@ class _SettingsHeader extends StatelessWidget {
     final title = Text(
       '提醒偏好',
       style: TextStyle(
-        fontSize: compact ? 26 : 32,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -.6,
-        color: colors.textPrimary,
-        height: 1.25,
+        fontFamily: 'JournalChinese',
+        fontSize: compact ? 28 : 36,
+        fontWeight: FontWeight.w500,
+        letterSpacing: .5,
+        color: colors.primary,
+        height: 1.3,
       ),
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (compact)
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final inlineStatus =
+            constraints.maxWidth >= 560 &&
+            MediaQuery.textScalerOf(context).scale(14) <= 20;
+        final heading = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            title,
+            const SizedBox(height: 8),
+            Text('为每一天，设置舒适的节奏。', style: _descriptionStyle(context)),
+            const SizedBox(height: 14),
+            Container(width: 38, height: 1.5, color: colors.primary),
+          ],
+        );
+        if (inlineStatus) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(child: title),
-              const SizedBox(width: 16),
+              Expanded(child: heading),
+              const SizedBox(width: 24),
               status,
             ],
-          )
-        else
-          title,
-        SizedBox(height: compact ? 6 : 10),
-        Text('按你和宝宝的节奏，安排每一次提醒。', style: _descriptionStyle(context)),
-        if (!compact) ...[const SizedBox(height: 16), status],
-      ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [heading, const SizedBox(height: 14), status],
+        );
+      },
     );
   }
 }
@@ -603,13 +549,13 @@ class _SettingsGrid extends StatelessWidget {
           constraints.maxWidth >= 680 &&
           MediaQuery.textScalerOf(context).scale(14) <= 20;
       return Wrap(
-        spacing: 20,
-        runSpacing: compact ? 22 : 28,
+        spacing: 48,
+        runSpacing: compact ? 30 : 40,
         children: [
           for (var i = 0; i < children.length; i++)
             SizedBox(
               width: twoColumns && i > 0
-                  ? (constraints.maxWidth - 20) / 2
+                  ? (constraints.maxWidth - 48) / 2
                   : constraints.maxWidth,
               child: children[i],
             ),
@@ -625,7 +571,7 @@ TextStyle _descriptionStyle(BuildContext context) => TextStyle(
   color: AppPalette.of(context).textSecondary,
 );
 TextStyle _hintStyle(BuildContext context) => TextStyle(
-  fontSize: 12,
+  fontSize: 13,
   height: 1.6,
   color: AppPalette.of(context).textSecondary,
 );
@@ -639,6 +585,88 @@ String _intervalLabel(int minutes) {
   if (hours == 0) return '$remainder 分钟';
   if (remainder == 0) return '$hours 小时';
   return '$hours 小时 $remainder 分钟';
+}
+
+class _IntervalPreference extends StatelessWidget {
+  const _IntervalPreference({
+    required this.minutes,
+    required this.busy,
+    required this.onCustom,
+    required this.onSelect,
+  });
+
+  final int minutes;
+  final bool busy;
+  final VoidCallback onCustom;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppPalette.of(context);
+    final value = Wrap(
+      spacing: 16,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          _intervalLabel(minutes),
+          key: const ValueKey('interval-value'),
+          style: TextStyle(
+            fontFamily: 'JournalSerif',
+            fontFamilyFallback: const ['JournalChinese'],
+            fontSize: 36,
+            height: 1.25,
+            fontWeight: FontWeight.w400,
+            letterSpacing: -.4,
+            color: colors.primary,
+          ),
+        ),
+        AppButton(
+          key: const ValueKey('custom-interval-button'),
+          compact: true,
+          radius: 6,
+          onPressed: busy ? null : onCustom,
+          child: const _ActionLabel(
+            icon: CupertinoIcons.slider_horizontal_3,
+            label: '自定义',
+          ),
+        ),
+      ],
+    );
+    final presets = Wrap(
+      spacing: 8,
+      runSpacing: 10,
+      children: [
+        for (final preset in [120, 150, 180, 210, 240])
+          _PreferenceOption(
+            controlKey: ValueKey('interval-preset-$preset'),
+            label: _presetLabel(preset),
+            selected: minutes == preset,
+            onPressed: busy ? null : () => onSelect(preset),
+          ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontal =
+            constraints.maxWidth >= 960 &&
+            MediaQuery.textScalerOf(context).scale(14) <= 18;
+        if (horizontal) {
+          return Row(
+            children: [
+              Expanded(child: value),
+              const SizedBox(width: 32),
+              Flexible(child: presets),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [value, const SizedBox(height: 16), presets],
+        );
+      },
+    );
+  }
 }
 
 class _SettingsGroup extends StatelessWidget {
@@ -663,48 +691,36 @@ class _SettingsGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 6, right: 6),
-          child: Row(
-            children: [
-              Icon(icon, size: 19, color: colors.primary),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
-                  ),
+        Container(height: 1, color: colors.border),
+        SizedBox(height: compact ? 16 : 20),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontFamily: 'JournalChinese',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
+                  color: colors.textPrimary,
+                  letterSpacing: .3,
                 ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 16),
+            Icon(icon, size: 21, color: colors.textSecondary),
+          ],
         ),
         SizedBox(height: compact ? 6 : 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          child: Text(description, style: _descriptionStyle(context)),
-        ),
-        SizedBox(height: compact ? 10 : 14),
-        AppGlassSurface(
-          radius: 28,
-          padding: EdgeInsets.all(compact ? 16 : 20),
-          child: SizedBox(
-            width: double.infinity,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
-            ),
-          ),
+        Text(description, style: _descriptionStyle(context)),
+        SizedBox(height: compact ? 16 : 24),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
         ),
         if (footer != null) ...[
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(footer!, style: _hintStyle(context)),
-          ),
+          const SizedBox(height: 16),
+          Text(footer!, style: _hintStyle(context)),
         ],
       ],
     );
@@ -716,8 +732,11 @@ class _GroupSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 20),
-    child: Container(height: .5, color: AppPalette.of(context).border),
+    padding: const EdgeInsets.symmetric(vertical: 16),
+    child: Container(
+      height: 1,
+      color: AppPalette.of(context).border.withValues(alpha: .7),
+    ),
   );
 }
 
@@ -741,7 +760,7 @@ class _ToggleRow extends StatelessWidget {
     final colors = AppPalette.of(context);
     return MergeSemantics(
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
@@ -750,6 +769,7 @@ class _ToggleRow extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
+                    fontFamily: 'JournalChinese',
                     fontSize: 16,
                     height: 1.45,
                     fontWeight: FontWeight.w500,
@@ -774,8 +794,8 @@ class _ToggleRow extends StatelessWidget {
   }
 }
 
-class _GlassOption extends StatelessWidget {
-  const _GlassOption({
+class _PreferenceOption extends StatelessWidget {
+  const _PreferenceOption({
     required this.controlKey,
     required this.label,
     required this.selected,
@@ -792,17 +812,27 @@ class _GlassOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppPalette.of(context);
-    final foreground = selected ? colors.onPrimary : colors.textPrimary;
+    final foreground = selected ? colors.primary : colors.textSecondary;
     return AppPressable(
       key: controlKey,
       onPressed: onPressed,
       semanticLabel: label,
       selected: selected,
       excludeSemantics: true,
-      child: AppGlassSurface(
-        radius: 20,
-        tinted: selected,
-        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 46),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.primary.withValues(alpha: .07)
+              : colors.background,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected
+                ? colors.primary.withValues(alpha: .7)
+                : colors.border,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -814,8 +844,10 @@ class _GlassOption extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  fontFamily: icon == null ? 'JournalSerif' : 'JournalChinese',
+                  fontFamilyFallback: const ['JournalChinese'],
+                  fontSize: icon == null ? 16 : 14,
+                  fontWeight: FontWeight.w500,
                   color: foreground,
                 ),
               ),
@@ -849,39 +881,58 @@ class _TimeControl extends StatelessWidget {
       onPressed: onTap,
       semanticLabel: '$label $value',
       excludeSemantics: true,
-      child: AppGlassSurface(
-        radius: 20,
-        padding: const EdgeInsets.all(16),
-        child: SizedBox(
-          width: double.infinity,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: _hintStyle(context)),
-              const SizedBox(height: 8),
-              Row(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final time = ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: -.5,
-                        color: color,
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          fontFamily: 'JournalSerif',
+                          fontSize: 29,
+                          fontWeight: FontWeight.w400,
+                          letterSpacing: -.3,
+                          color: color,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    CupertinoIcons.chevron_up_chevron_down,
-                    size: 17,
-                    color: color,
-                  ),
+                  const SizedBox(width: 12),
+                  Icon(CupertinoIcons.chevron_forward, size: 13, color: color),
                 ],
               ),
-            ],
-          ),
+            );
+            final labelText = Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'JournalChinese',
+                fontSize: 16,
+                color: colors.textPrimary,
+              ),
+            );
+            if (MediaQuery.textScalerOf(context).scale(14) > 20) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [labelText, const SizedBox(height: 10), time],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: labelText),
+                const SizedBox(width: 16),
+                time,
+              ],
+            );
+          },
         ),
       ),
     );
@@ -899,7 +950,12 @@ class _ActionLabel extends StatelessWidget {
     children: [
       Icon(icon, size: 17),
       const SizedBox(width: 8),
-      Flexible(child: Text(label)),
+      Flexible(
+        child: Text(
+          label,
+          style: const TextStyle(fontFamily: 'JournalChinese'),
+        ),
+      ),
     ],
   );
 }
@@ -922,15 +978,26 @@ class _PermissionRow extends StatelessWidget {
       semanticLabel: label,
       excludeSemantics: true,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
           children: [
             Icon(icon, size: 20, color: colors.primary),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(fontSize: 16, color: colors.textPrimary),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'JournalChinese',
+                      fontSize: 16,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text('前往系统授权', style: _hintStyle(context)),
+                ],
               ),
             ),
             const SizedBox(width: 10),
@@ -993,18 +1060,18 @@ class _IntervalEditorState extends State<_IntervalEditor> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          24,
-          24,
-          24,
-          24 + MediaQuery.viewInsetsOf(context).bottom,
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: Align(
           alignment: Alignment.center,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
             child: SingleChildScrollView(
-              child: AppGlassSurface(
-                radius: 30,
+              child: AppSurface(
+                radius: 12,
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1013,17 +1080,21 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                     Text(
                       '自定义喂奶间隔',
                       style: TextStyle(
+                        fontFamily: 'JournalChinese',
                         fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w500,
+                        color: colors.primary,
+                        letterSpacing: .3,
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Container(width: 38, height: 1.5, color: colors.primary),
                     const SizedBox(height: 14),
                     Text(
-                      '输入 1–1440 分钟。修改后，当前计时也会按新间隔重新计算。',
+                      '选择适合宝宝的节奏。保存后，当前计时会按新间隔重新计算。',
                       style: _descriptionStyle(context),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 28),
                     Text('间隔时长', style: _hintStyle(context)),
                     const SizedBox(height: 8),
                     CupertinoTextField(
@@ -1034,18 +1105,20 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       textInputAction: TextInputAction.done,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w500,
-                        color: colors.textPrimary,
+                        fontFamily: 'JournalSerif',
+                        fontSize: 40,
+                        fontWeight: FontWeight.w400,
+                        color: colors.primary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                       cursorColor: colors.primary,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: colors.background.withValues(alpha: .65),
-                        borderRadius: BorderRadius.circular(18),
+                        color: colors.background,
+                        borderRadius: BorderRadius.circular(6),
                         border: Border.all(
                           color: _error == null ? colors.border : colors.alert,
-                          width: .5,
+                          width: 1,
                         ),
                       ),
                       suffix: Padding(
@@ -1053,7 +1126,12 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                         child: Text('分钟', style: _descriptionStyle(context)),
                       ),
                       onSubmitted: (_) => _submit(),
+                      onChanged: (_) {
+                        if (_error != null) setState(() => _error = null);
+                      },
                     ),
+                    const SizedBox(height: 10),
+                    Text('可设置 1–1440 分钟', style: _hintStyle(context)),
                     if (_error != null) ...[
                       const SizedBox(height: 10),
                       Text(
@@ -1071,11 +1149,22 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       spacing: 12,
                       runSpacing: 10,
                       children: [
-                        AppButton(onPressed: _close, child: const Text('取消')),
+                        AppButton(
+                          onPressed: _close,
+                          radius: 6,
+                          child: const Text(
+                            '取消',
+                            style: TextStyle(fontFamily: 'JournalChinese'),
+                          ),
+                        ),
                         AppButton(
                           filled: true,
+                          radius: 6,
                           onPressed: _submit,
-                          child: const Text('保存'),
+                          child: const Text(
+                            '保存',
+                            style: TextStyle(fontFamily: 'JournalChinese'),
+                          ),
                         ),
                       ],
                     ),

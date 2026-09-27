@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'widgets/app_glass.dart';
+import 'widgets/app_surface.dart';
 import 'widgets/app_controls.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,6 +17,7 @@ import 'services/notification_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 import 'utils/constants.dart';
+import 'utils/time_utils.dart';
 
 /// Owns service lifetimes and synchronizes settings independently of the views.
 class FeedReminderApp extends StatefulWidget {
@@ -87,7 +88,7 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   }
 
   void _syncSettings() {
-    if (!mounted || !_settings.isInitialized || !_feed.isInitialized) return;
+    if (!mounted || !_settings.isAvailable || !_feed.isInitialized) return;
     _feed.updateSettings(
       feedIntervalMinutes: _settings.feedIntervalMinutes,
       nightModeEnabled: _settings.nightModeEnabled,
@@ -183,20 +184,16 @@ class _FeedReminderAppState extends State<FeedReminderApp>
           final dark =
               Theme.of(context).brightness == Brightness.dark ||
               (_index == 0 && _displayDimmed);
-          return AppGlass.wrap(
-            AnnotatedRegion<SystemUiOverlayStyle>(
-              value:
-                  (dark
-                          ? SystemUiOverlayStyle.light
-                          : SystemUiOverlayStyle.dark)
-                      .copyWith(
-                        statusBarColor: Colors.transparent,
-                        systemNavigationBarColor: dark
-                            ? AppPalette.dark.background
-                            : AppPalette.light.background,
-                      ),
-              child: child!,
-            ),
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value:
+                (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
+                    .copyWith(
+                      statusBarColor: Colors.transparent,
+                      systemNavigationBarColor: dark
+                          ? AppPalette.dark.background
+                          : AppPalette.light.background,
+                    ),
+            child: child!,
           );
         },
         home: Builder(
@@ -204,40 +201,53 @@ class _FeedReminderAppState extends State<FeedReminderApp>
             backgroundColor: _index == 0 && _displayDimmed
                 ? AppPalette.dark.background
                 : AppPalette.of(context).background,
-            body: AppGlassBackdrop(
+            body: AppBackdrop(
               dimmed: _index == 0 && _displayDimmed,
               child: SafeArea(
-                child: Column(
-                  children: [
-                    Visibility(
-                      visible: !(_index == 0 && _displayDimmed),
-                      child: _AppNavigation(
-                        index: _index,
-                        onSelect: _selectPage,
-                      ),
-                    ),
-                    // Stable element path preserves page state through rotation,
-                    // theme changes and standby.
-                    Expanded(
-                      child: Scaffold(
-                        backgroundColor: Colors.transparent,
-                        body: IndexedStack(
-                          index: _index,
-                          children: [
-                            HomeScreen(
-                              isActive: _index == 0 && _foreground,
-                              onHistoryRequested: () => _selectPage(1),
-                              onDisplayDimmedChanged: _onDisplayDimmedChanged,
-                            ),
-                            const HistoryScreen(),
-                            SettingsScreen(
-                              isActive: _index == 2 && _foreground,
-                            ),
-                          ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final size = MediaQuery.sizeOf(context);
+                    final rail = size.width >= 600 && size.width > size.height;
+                    return Flex(
+                      direction: rail ? Axis.horizontal : Axis.vertical,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      verticalDirection: rail
+                          ? VerticalDirection.down
+                          : VerticalDirection.up,
+                      children: [
+                        Visibility(
+                          visible: !(_index == 0 && _displayDimmed),
+                          child: _AppNavigation(
+                            index: _index,
+                            onSelect: _selectPage,
+                            rail: rail,
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
+                        // Stable element path preserves page state through rotation,
+                        // theme changes and standby.
+                        Expanded(
+                          child: Scaffold(
+                            backgroundColor: Colors.transparent,
+                            body: IndexedStack(
+                              index: _index,
+                              children: [
+                                HomeScreen(
+                                  isActive: _index == 0 && _foreground,
+                                  onHistoryRequested: () => _selectPage(1),
+                                  onDisplayDimmedChanged:
+                                      _onDisplayDimmedChanged,
+                                ),
+                                const HistoryScreen(),
+                                SettingsScreen(
+                                  isActive: _index == 2 && _foreground,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -249,84 +259,233 @@ class _FeedReminderAppState extends State<FeedReminderApp>
 }
 
 class _AppNavigation extends StatelessWidget {
-  const _AppNavigation({required this.index, required this.onSelect});
+  const _AppNavigation({
+    required this.index,
+    required this.onSelect,
+    required this.rail,
+  });
   final int index;
   final ValueChanged<int> onSelect;
+  final bool rail;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 600;
-        Widget destination(int page, String label, IconData icon, String key) {
-          return AppButton(
-            key: ValueKey(key),
-            onPressed: () => onSelect(page),
-            glass: page != 0,
-            filled: page == index && page != 0,
-            selected: page == index,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 10 : 16,
-              vertical: 10,
-            ),
-            child: Semantics(
-              selected: page == index,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: compact ? 20 : 22),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: page == 0
-                              ? (compact ? 16 : 20)
-                              : (compact ? 14 : 17),
-                          fontWeight: FontWeight.w600,
-                        ),
+    final p = AppPalette.of(context);
+    final width = (MediaQuery.sizeOf(context).width * .257).clamp(180.0, 260.0);
+    Widget destination(int page, String label, String key) {
+      final active = index == page;
+      return Expanded(
+        child: AppPressable(
+          key: ValueKey(key),
+          onPressed: () => onSelect(page),
+          semanticLabel: label,
+          excludeSemantics: true,
+          selected: active,
+          child: SizedBox(
+            height: rail ? 48 : 54,
+            child: Column(
+              crossAxisAlignment: rail
+                  ? (page == 0
+                        ? CrossAxisAlignment.start
+                        : page == 2
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.center)
+                  : CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: 'JournalChinese',
+                        fontSize: rail ? 17 : 16,
+                        color: active ? p.primary : p.textSecondary,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1440),
-            child: Padding(
-              key: const ValueKey('app-navigation'),
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 8 : 20,
-                vertical: MediaQuery.sizeOf(context).height < 360 ? 4 : 8,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: destination(
-                        0,
-                        '喂奶提醒',
-                        CupertinoIcons.heart_circle,
-                        'nav-home',
-                      ),
-                    ),
-                  ),
-                  destination(1, '记录', CupertinoIcons.book, 'nav-history'),
-                  const SizedBox(width: 8),
-                  destination(2, '设置', CupertinoIcons.gear, 'nav-settings'),
-                ],
-              ),
+                ),
+                const SizedBox(height: 7),
+                Container(
+                  width: 32,
+                  height: 2,
+                  color: active ? p.primary : Colors.transparent,
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    final navigation = Row(
+      children: [
+        destination(0, '计时', 'nav-home'),
+        destination(1, '记录', 'nav-history'),
+        destination(2, '设置', 'nav-settings'),
+      ],
+    );
+    return Container(
+      key: const ValueKey('app-navigation'),
+      width: rail ? width : double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        rail ? (width >= 210 ? 27 : 16) : 24,
+        rail ? 24 : 3,
+        rail ? (width >= 210 ? 18 : 16) : 24,
+        rail ? 16 : 3,
+      ),
+      decoration: BoxDecoration(
+        color: p.background,
+        border: rail
+            ? Border(right: BorderSide(color: p.border, width: .7))
+            : Border(top: BorderSide(color: p.border, width: .7)),
+      ),
+      child: !rail
+          ? navigation
+          : SingleChildScrollView(
+              child:
+                  Selector<
+                    FeedProvider,
+                    ({DateTime day, DateTime? last, int count})
+                  >(
+                    selector: (_, feed) => (
+                      day: DateUtils.dateOnly(feed.referenceTime),
+                      last: feed.lastFeedTime,
+                      count: feed.todayRecords.length,
+                    ),
+                    builder: (context, data, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '喂奶提醒',
+                            style: TextStyle(
+                              fontFamily: 'JournalChinese',
+                              color: p.primary,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w400,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            '${data.day.month}月${data.day.day}日  周${'一二三四五六日'[data.day.weekday - 1]}',
+                            style: TextStyle(
+                              fontFamily: 'JournalChinese',
+                              fontSize: 14,
+                              color: p.textSecondary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 11),
+                        Container(width: 35, height: 1, color: p.primary),
+                        const SizedBox(height: 18),
+                        navigation,
+                        const SizedBox(height: 12),
+                        Divider(color: p.border, height: 1),
+                        const SizedBox(height: 17),
+                        Text(
+                          '上次',
+                          style: TextStyle(
+                            fontFamily: 'JournalChinese',
+                            color: p.textSecondary,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            data.last == null
+                                ? '— —'
+                                : TimeUtils.formatTime(data.last!),
+                            style: TextStyle(
+                              fontFamily: 'JournalSerif',
+                              fontSize: 34,
+                              height: 1.2,
+                              color: p.textPrimary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (data.last != null)
+                          Selector<FeedProvider, Duration>(
+                            selector: (_, feed) => feed.timeElapsed,
+                            builder: (context, elapsed, _) => Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  '已间隔 ${TimeUtils.formatDuration(elapsed)}',
+                                  style: TextStyle(
+                                    color: p.textSecondary,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        Divider(color: p.border, height: 1),
+                        const SizedBox(height: 13),
+                        AppPressable(
+                          onPressed: () => onSelect(1),
+                          semanticLabel: '查看今日喂奶记录',
+                          excludeSemantics: true,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '今天',
+                                  style: TextStyle(
+                                    fontFamily: 'JournalChinese',
+                                    color: p.textSecondary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: '${data.count}',
+                                        style: const TextStyle(
+                                          fontFamily: 'JournalSerif',
+                                          fontSize: 34,
+                                        ),
+                                      ),
+                                      const TextSpan(
+                                        text: ' 次',
+                                        style: TextStyle(
+                                          fontFamily: 'JournalChinese',
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  style: TextStyle(
+                                    height: 1.2,
+                                    color: p.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+            ),
     );
   }
 }

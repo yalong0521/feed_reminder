@@ -1,16 +1,20 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
 import 'package:feed_reminder/app.dart';
+import 'package:feed_reminder/models/feed_record.dart';
 import 'package:feed_reminder/providers/feed_provider.dart';
+import 'package:feed_reminder/providers/settings_provider.dart';
 import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
+import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
-import 'package:feed_reminder/widgets/app_glass.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
 
 void _expectNoMaterialInteractions() {
@@ -42,13 +46,6 @@ Future<void> _slideToRecord(WidgetTester tester) async {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() async {
-    // Match production startup so this smoke test renders the real glass
-    // engine instead of silently exercising only solid fallback surfaces.
-    await AppGlass.initialize();
-    expect(AppGlass.isReady, isTrue);
-  });
-
   testWidgets('Android feeding, navigation and settings smoke test', (
     tester,
   ) async {
@@ -60,24 +57,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('等待第一条记录'), findsOneWidget);
     _expectNoMaterialInteractions();
-    final dock = find.byKey(const ValueKey('feed-control-dock'));
-    expect(
-      find.descendant(of: dock, matching: find.byType(GlassContainer)),
-      findsWidgets,
-    );
+    final slider = find.byType(FeedButton);
+    expect(slider.hitTestable(), findsOneWidget);
 
-    // An initialized shader must still yield to system accessibility. Retain
-    // this check here because unit tests intentionally omit shader startup.
+    // Check opaque control contrast in the real engine and system high contrast.
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(highContrast: true);
     addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
     await tester.pumpAndSettle();
-    expect(find.byType(GlassContainer), findsNothing);
-    final solidDock = tester.widget<Material>(
-      find.descendant(of: dock, matching: find.byType(Material)).first,
+    expect(find.byType(BackdropFilter), findsNothing);
+    final palette = AppPalette.of(tester.element(slider));
+    final solidSlider = tester.widget<Material>(
+      find.descendant(of: slider, matching: find.byType(Material)).first,
     );
-    expect(solidDock.color, AppPalette.of(tester.element(dock)).surface);
-    expect(solidDock.color!.a, 1);
+    expect(solidSlider.color, palette.softGreen);
+    expect(solidSlider.color!.a, 1);
+    final label = tester.widget<Text>(
+      find.descendant(of: slider, matching: find.byType(Text)).first,
+    );
+    expect(label.style?.color, palette.textSecondary);
     final feed = tester.element(find.byType(FeedButton)).read<FeedProvider>();
     await tester.tap(find.byType(FeedButton));
     await tester.pumpAndSettle();
@@ -91,8 +89,8 @@ void main() {
     tester.platformDispatcher.clearAccessibilityFeaturesTestValue();
     await tester.pumpAndSettle();
     expect(
-      find.descendant(of: dock, matching: find.byType(GlassContainer)),
-      findsWidgets,
+      find.byKey(const ValueKey('feed-slide-undo')).hitTestable(),
+      findsOneWidget,
     );
     await tester.tap(find.byKey(const ValueKey('nav-settings')));
     await tester.pumpAndSettle();
@@ -153,4 +151,76 @@ void main() {
     expect(audio.isPlaying, isFalse);
     await audio.dispose();
   });
+
+  testWidgets(
+    'sliding a feeding stops native looping audio and replaces its reminder',
+    (tester) async {
+      final now = DateTime.now();
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedIntervalMinutes: 60,
+        StorageKeys.soundEnabled: true,
+        StorageKeys.soundLoopEnabled: true,
+        StorageKeys.nightModeEnabled: false,
+        StorageKeys.burnInProtectionEnabled: false,
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(time: now.subtract(const Duration(hours: 2))).toJson(),
+        ]),
+      });
+      final storage = StorageService();
+      final audio = AudioService();
+      final notifications = NotificationService();
+      addTearDown(audio.dispose);
+      addTearDown(notifications.cancelAll);
+      await notifications.init();
+      final feed = FeedProvider(
+        storage: storage,
+        audioService: audio,
+        notificationService: notifications,
+        clock: () => now,
+        startTimer: false,
+      );
+      final settings = SettingsProvider(storage: storage);
+      addTearDown(feed.dispose);
+      addTearDown(settings.dispose);
+      await Future.wait([feed.ready, settings.ready]);
+      expect(feed.state, FeedState.alerting);
+      expect(audio.isPlaying, isTrue);
+
+      await tester.pumpWidget(
+        FeedReminderApp(
+          storage: storage,
+          audioService: audio,
+          notificationService: notifications,
+          feedProvider: feed,
+          settingsProvider: settings,
+          enablePlatformEffects: false,
+        ),
+      );
+      // Native looping playback can keep the live test binding scheduling
+      // frames. Wait for the actual save result instead of global frame idle.
+      await tester.pump(const Duration(milliseconds: 400));
+      await _slideToRecord(tester);
+      for (var attempt = 0; attempt < 50; attempt++) {
+        await tester.pump(const Duration(milliseconds: 100));
+        if (!feed.isSaving &&
+            feed.feedHistory.length == 2 &&
+            find
+                .byKey(const ValueKey('feed-slide-undo'))
+                .evaluate()
+                .isNotEmpty) {
+          break;
+        }
+      }
+      expect(feed.feedHistory, hasLength(2));
+      expect(feed.state, FeedState.normal);
+      expect(audio.isPlaying, isFalse);
+      expect(find.byKey(const ValueKey('feed-slide-undo')), findsOneWidget);
+      expect(
+        await FlutterLocalNotificationsPlugin().pendingNotificationRequests(),
+        hasLength(1),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

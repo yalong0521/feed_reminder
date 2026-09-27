@@ -1,30 +1,29 @@
 import 'package:flutter/material.dart';
 
-/// Soft Luxe Nurturing — a warm, refined design system
-/// for a baby-feeding reminder app.
+/// Daylight journal: warm paper, terracotta accents and readable ink.
 class AppColors {
   // Foundation
-  static const Color background = Color(0xFFF6F5F0);
-  static const Color surface = Color(0xFFFFFFFF);
+  static const Color background = Color(0xFFFAF6EE);
+  static const Color surface = Color(0xFFFFFCF6);
   static const Color white = Color(0xFFFFFFFF);
 
   // Brand
-  static const Color primary = Color(0xFF285E50);
+  static const Color primary = Color(0xFFAD593C);
   static const Color accent = primary;
-  static const Color accentLight = Color(0xFF91AD97);
-  static const Color border = Color(0xFFDFE5DC);
-  static const Color softGreen = Color(0xFFE8F0E8);
-  static const Color softPeach = Color(0xFFF7E7DB);
+  static const Color accentLight = Color(0xFFD69A7D);
+  static const Color border = Color(0xFFE3D9CB);
+  static const Color softGreen = Color(0xFFF1E8DB);
+  static const Color softPeach = Color(0xFFF4E5D9);
 
   // Semantic
-  static const Color success = Color(0xFF3E7258);
-  static const Color warning = Color(0xFFA56A24);
-  static const Color alert = Color(0xFFB8533B);
+  static const Color success = Color(0xFF327A69);
+  static const Color warning = Color(0xFF996526);
+  static const Color alert = Color(0xFFB64648);
 
   // Text
-  static const Color textPrimary = Color(0xFF20382F);
-  static const Color textSecondary = Color(0xFF607068);
-  static const Color textTertiary = Color(0xFF65736B);
+  static const Color textPrimary = Color(0xFF3A322D);
+  static const Color textSecondary = Color(0xFF706257);
+  static const Color textTertiary = Color(0xFF796D61);
 }
 
 /// Semantic colors for pages and shared widgets. Read through [of] so widgets
@@ -70,21 +69,21 @@ class AppPalette extends ThemeExtension<AppPalette> {
   );
 
   static const dark = AppPalette(
-    background: Color(0xFF101B18),
-    surface: Color(0xFF17231E),
-    primary: Color(0xFFB2C5A0),
-    onPrimary: Color(0xFF17251C),
-    accent: Color(0xFFB2C5A0),
-    accentLight: Color(0xFF8EA785),
-    border: Color(0xFF34453B),
-    softGreen: Color(0xFF263B2E),
-    softPeach: Color(0xFF3D2C24),
-    success: Color(0xFFA9C99C),
-    warning: Color(0xFFD8BA80),
-    alert: Color(0xFFF1AE90),
-    textPrimary: Color(0xFFD7E4CC),
-    textSecondary: Color(0xFFA7B5A7),
-    textTertiary: Color(0xFF879989),
+    background: Color(0xFF221E1B),
+    surface: Color(0xFF2C2622),
+    primary: Color(0xFFEDA987),
+    onPrimary: Color(0xFF382219),
+    accent: Color(0xFFEDA987),
+    accentLight: Color(0xFFAB7156),
+    border: Color(0xFF4A3E34),
+    softGreen: Color(0xFF3C3028),
+    softPeach: Color(0xFF443027),
+    success: Color(0xFF94C7B8),
+    warning: Color(0xFFE0BD8B),
+    alert: Color(0xFFFFA5AA),
+    textPrimary: Color(0xFFF4EADC),
+    textSecondary: Color(0xFFC5B3A2),
+    textTertiary: Color(0xFFB9A694),
     white: Colors.white,
   );
 
