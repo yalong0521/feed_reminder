@@ -1,6 +1,8 @@
 import 'package:feed_reminder/theme/app_theme.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
+import 'package:feed_reminder/widgets/app_message_dialog.dart';
+import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -71,6 +73,27 @@ final _dialog = find.byKey(const ValueKey('app-notice-dialog'));
 final _close = find.byKey(const ValueKey('app-notice-close'));
 final _action = find.byKey(const ValueKey('app-notice-action'));
 
+void _expectJournalDialog() {
+  expect(find.byType(AppMessageDialog), findsOneWidget);
+  expect(find.byType(CupertinoAlertDialog), findsNothing);
+  expect(find.byType(CupertinoDialogAction), findsNothing);
+  expect(
+    find.byWidgetPredicate((widget) => widget is InkResponse),
+    findsNothing,
+  );
+}
+
+Color _dialogSurfaceColor(WidgetTester tester) {
+  final surface = find
+      .descendant(of: _dialog, matching: find.byType(AppSurface))
+      .first;
+  return tester
+      .widget<Material>(
+        find.descendant(of: surface, matching: find.byType(Material)).first,
+      )
+      .color!;
+}
+
 void main() {
   testWidgets('consecutive errors replace one dialog without an old queue', (
     tester,
@@ -95,12 +118,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(host.observer.dialogPushes, 1);
-    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
+    _expectJournalDialog();
     expect(find.text('第一次保存失败'), findsNothing);
     expect(find.text('第二次保存失败'), findsNothing);
     expect(find.text('旧操作'), findsNothing);
     expect(find.text('请重试最后一次保存'), findsOneWidget);
     expect(find.text('重试保存'), findsOneWidget);
+    await tester.tapAt(const Offset(2, 2));
+    await tester.pumpAndSettle();
+    expect(_dialog, findsOneWidget);
 
     // Errors remain visible until explicitly acknowledged, regardless of the
     // duration accepted by the old helper API.
@@ -149,10 +175,8 @@ void main() {
       tester.widget<Text>(message).style!.color,
       AppPalette.light.textSecondary,
     );
-    expect(
-      CupertinoTheme.of(tester.element(_dialog)).brightness,
-      Brightness.light,
-    );
+    expect(Theme.of(tester.element(_dialog)).brightness, Brightness.light);
+    expect(_dialogSurfaceColor(tester), AppPalette.light.surface);
 
     host.setTheme(ThemeMode.dark);
     await tester.pumpAndSettle();
@@ -160,15 +184,121 @@ void main() {
       tester.widget<Text>(message).style!.color,
       AppPalette.dark.textSecondary,
     );
-    expect(
-      CupertinoTheme.of(tester.element(_dialog)).brightness,
-      Brightness.dark,
-    );
+    expect(Theme.of(tester.element(_dialog)).brightness, Brightness.dark);
+    expect(_dialogSurfaceColor(tester), AppPalette.dark.surface);
+    _expectJournalDialog();
     expect(host.observer.dialogPushes, 1);
     await tester.tap(_close);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  for (final layout in [
+    (
+      size: const Size(640, 320),
+      scale: 1.0,
+      keyboard: 0.0,
+      padding: const FakeViewPadding(left: 24, right: 24, bottom: 16),
+    ),
+    (
+      size: const Size(320, 640),
+      scale: 2.0,
+      keyboard: 0.0,
+      padding: const FakeViewPadding(top: 24, bottom: 24),
+    ),
+    (
+      size: const Size(640, 320),
+      scale: 1.0,
+      keyboard: 200.0,
+      padding: const FakeViewPadding(top: 24, left: 24, right: 24),
+    ),
+    (
+      size: const Size(640, 320),
+      scale: 1.8,
+      keyboard: 200.0,
+      padding: const FakeViewPadding(top: 24, left: 24, right: 24),
+    ),
+  ]) {
+    testWidgets(
+      'long journal notice stays usable in ${layout.size} at ${layout.scale}x text '
+      'with ${layout.keyboard}px keyboard',
+      (tester) async {
+        tester.view.physicalSize = layout.size;
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = layout.padding;
+        tester.view.viewPadding = layout.padding;
+        tester.view.viewInsets = FakeViewPadding(bottom: layout.keyboard);
+        tester.platformDispatcher.textScaleFactorTestValue = layout.scale;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
+        addTearDown(tester.view.resetViewInsets);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final host = await _mount(tester);
+        var retries = 0;
+        const message =
+            '记录暂时无法保存。当前喂奶记录仍然保留，请检查设备存储空间后重试。'
+            '如果问题持续，可以先关闭提示，稍后重新打开应用。\n'
+            '关闭此提示不会删除现有记录，也不会重复添加刚刚尝试保存的记录。';
+        showAppNotice(
+          host.sourceContext,
+          message,
+          actionLabel: '重新尝试保存',
+          onAction: () => retries++,
+        );
+        await tester.pumpAndSettle();
+
+        for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+          host.setTheme(mode);
+          await tester.pumpAndSettle();
+          _expectJournalDialog();
+          expect(find.text(message), findsOneWidget);
+          expect(
+            _dialogSurfaceColor(tester),
+            mode == ThemeMode.dark
+                ? AppPalette.dark.surface
+                : AppPalette.light.surface,
+          );
+          for (final action in [_close, _action]) {
+            await tester.ensureVisible(action);
+            await tester.pumpAndSettle();
+            expect(tester.widget(action), isA<AppButton>());
+            expect(action.hitTestable(), findsOneWidget);
+            final rect = tester.getRect(action);
+            expect(rect.left, greaterThanOrEqualTo(layout.padding.left));
+            expect(
+              rect.right,
+              lessThanOrEqualTo(layout.size.width - layout.padding.right),
+            );
+            if (layout.keyboard > 0) {
+              // A large button can exceed the short viewport. Its visible,
+              // hit-testable center must remain reachable above the keyboard.
+              expect(rect.center.dy, greaterThanOrEqualTo(layout.padding.top));
+              expect(
+                rect.center.dy,
+                lessThanOrEqualTo(layout.size.height - layout.keyboard),
+              );
+            } else {
+              expect(rect.top, greaterThanOrEqualTo(layout.padding.top));
+              expect(
+                rect.bottom,
+                lessThanOrEqualTo(layout.size.height - layout.padding.bottom),
+              );
+            }
+          }
+          expect(host.observer.dialogPushes, 1);
+          expect(tester.takeException(), isNull);
+        }
+        await tester.tap(_action);
+        await tester.pumpAndSettle();
+        expect(retries, 1);
+        expect(_dialog, findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
 
   testWidgets('system back closes the dialog and a later error can reopen', (
     tester,

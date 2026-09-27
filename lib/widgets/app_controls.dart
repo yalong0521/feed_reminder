@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/constants.dart';
+import 'app_message_dialog.dart';
 import 'app_surface.dart';
 
 /// One interaction language: a quiet press, with keyboard and reader support.
@@ -214,9 +215,8 @@ void showAppNotice(
   }
 
   final controller = _AppNoticeController(navigator, request);
-  final route = CupertinoDialogRoute<void>(
-    context: context,
-    barrierDismissible: false,
+  final route = createAppMessageDialogRoute<void>(
+    context,
     settings: const RouteSettings(name: 'app-error-dialog'),
     builder: (dialogContext) => PopScope<void>(
       onPopInvokedWithResult: (didPop, result) {
@@ -229,22 +229,10 @@ void showAppNotice(
         builder: (context, child) {
           final request = controller.request;
           final colors = AppPalette.of(context);
-          return CupertinoAlertDialog(
+          return AppMessageDialog(
             key: const ValueKey('app-notice-dialog'),
-            title: Column(
-              children: [
-                Icon(
-                  CupertinoIcons.exclamationmark_circle,
-                  color: colors.alert,
-                  size: 30,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '操作未完成',
-                  style: TextStyle(color: colors.textPrimary, fontSize: 20),
-                ),
-              ],
-            ),
+            title: '操作未完成',
+            icon: CupertinoIcons.exclamationmark_circle,
             content: Semantics(
               liveRegion: true,
               child: Text(
@@ -258,16 +246,17 @@ void showAppNotice(
               ),
             ),
             actions: [
-              CupertinoDialogAction(
+              AppButton(
                 key: const ValueKey('app-notice-close'),
-                isDefaultAction: !request.hasAction,
+                surface: !request.hasAction,
+                filled: !request.hasAction,
                 onPressed: controller.dismiss,
                 child: const Text('关闭'),
               ),
               if (request.hasAction)
-                CupertinoDialogAction(
+                AppButton(
                   key: const ValueKey('app-notice-action'),
-                  isDefaultAction: true,
+                  filled: true,
                   onPressed: controller.activate,
                   child: Text(request.actionLabel!),
                 ),
@@ -312,7 +301,7 @@ class _AppNoticeController extends ChangeNotifier {
   _AppNoticeController(this.navigator, this.request);
 
   final NavigatorState navigator;
-  late final CupertinoDialogRoute<void> route;
+  late final RawDialogRoute<void> route;
   _AppNoticeRequest request;
   bool _closing = false;
 

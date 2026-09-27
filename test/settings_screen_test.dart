@@ -8,6 +8,7 @@ import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/theme/app_theme.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
+import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -129,11 +130,17 @@ void main() {
   }
 
   Future<void> closeErrorDialog(WidgetTester tester) async {
-    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
-    expect(find.widgetWithText(CupertinoDialogAction, '关闭'), findsOneWidget);
+    expect(find.byType(AppMessageDialog), findsOneWidget);
+    expect(find.byType(CupertinoAlertDialog), findsNothing);
+    expect(find.byType(CupertinoDialogAction), findsNothing);
+    expect(
+      find.byWidgetPredicate((widget) => widget is InkResponse),
+      findsNothing,
+    );
+    expect(find.widgetWithText(AppButton, '关闭'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('app-notice-close')));
     await tester.pumpAndSettle();
-    expect(find.byType(CupertinoAlertDialog), findsNothing);
+    expect(find.byType(AppMessageDialog), findsNothing);
   }
 
   testWidgets('settings fit a 320 pixel screen at 200 percent text scale', (

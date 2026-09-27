@@ -8,6 +8,7 @@ import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
+import '../widgets/app_message_dialog.dart';
 
 typedef _HistorySnapshot = ({
   List<FeedRecord> records,
@@ -40,29 +41,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     try {
-      final confirmed = await showCupertinoDialog<bool>(
-        context: context,
-        builder: (dialogContext) => CupertinoAlertDialog(
-          title: const Text('删除这条记录？'),
-          content: Text(
-            '${_fullDate(record.time)} ${TimeUtils.formatTime(record.time)} 的喂奶记录将被删除。此操作无法撤销。',
-          ),
-          actions: [
-            CupertinoDialogAction(
-              key: const ValueKey('cancel-delete-record'),
-              isDefaultAction: true,
-              onPressed: () => close(dialogContext, false),
-              child: const Text(AppStrings.cancel),
+      final confirmed = await Navigator.of(context, rootNavigator: true)
+          .push<bool>(
+            createAppMessageDialogRoute<bool>(
+              context,
+              builder: (dialogContext) => AppMessageDialog(
+                title: '删除这条记录？',
+                icon: CupertinoIcons.trash,
+                detail: _DeleteRecordDetail(record: record),
+                content: const Text('删除后无法恢复，请确认这是要移除的一餐。'),
+                actions: [
+                  AppButton(
+                    key: const ValueKey('cancel-delete-record'),
+                    onPressed: () => close(dialogContext, false),
+                    child: const Text(AppStrings.cancel),
+                  ),
+                  AppButton(
+                    key: const ValueKey('confirm-delete-record'),
+                    filled: true,
+                    onPressed: () => close(dialogContext, true),
+                    child: const Text('确认删除'),
+                  ),
+                ],
+              ),
             ),
-            CupertinoDialogAction(
-              key: const ValueKey('confirm-delete-record'),
-              isDestructiveAction: true,
-              onPressed: () => close(dialogContext, true),
-              child: const Text(AppStrings.delete),
-            ),
-          ],
-        ),
-      );
+          );
       if (confirmed != true || !mounted) return;
 
       // A record's position can change while its confirmation is open.
@@ -520,6 +523,46 @@ class _HistoryEntry {
   final DateTime? day;
   final int count;
   final FeedRecord? record;
+}
+
+class _DeleteRecordDetail extends StatelessWidget {
+  const _DeleteRecordDetail({required this.record});
+
+  final FeedRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppPalette.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: Border.symmetric(horizontal: BorderSide(color: colors.border)),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 4,
+        children: [
+          Text(
+            _fullDate(record.time),
+            style: TextStyle(color: colors.textSecondary, fontSize: 14),
+          ),
+          Text(
+            TimeUtils.formatTime(record.time),
+            style: TextStyle(
+              fontFamily: 'JournalSerif',
+              fontSize: 36,
+              height: 1.2,
+              color: colors.primary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DayHeader extends StatelessWidget {

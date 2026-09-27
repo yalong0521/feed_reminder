@@ -18,6 +18,7 @@ import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
 import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
+import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
 import 'package:feed_reminder/widgets/countdown_scale.dart';
 
@@ -495,7 +496,7 @@ void main() {
       expect((await storage.getFeedHistory()).single.id, recordedId);
       expect(app.feed.nextFeedTime, deadline);
       expect(find.byType(SnackBar), findsNothing);
-      expect(find.byType(CupertinoAlertDialog), findsNothing);
+      expect(find.byType(AppMessageDialog), findsNothing);
 
       await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
@@ -888,7 +889,9 @@ void main() {
       await tester.ensureVisible(delete);
       await tester.tap(delete);
       await tester.pumpAndSettle();
-      expect(find.byType(CupertinoAlertDialog), findsOneWidget);
+      expect(find.byType(AppMessageDialog), findsOneWidget);
+      expect(find.byType(CupertinoAlertDialog), findsNothing);
+      expect(find.byType(CupertinoDialogAction), findsNothing);
       _expectNoMaterialInteractions();
       await tester.tap(find.byKey(const ValueKey('cancel-delete-record')));
       await tester.pumpAndSettle();

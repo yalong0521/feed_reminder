@@ -11,8 +11,10 @@ import 'package:feed_reminder/theme/app_theme.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
+import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -341,10 +343,93 @@ void main() {
         provider.feedHistory.any((record) => record.id == 'same-time'),
         isTrue,
       );
-      expect(find.byType(CupertinoAlertDialog), findsNothing);
+      expect(find.byType(AppMessageDialog), findsNothing);
       expect(find.byType(SnackBar), findsNothing);
     },
   );
+
+  testWidgets('repeated deletion actions delete once and leave history open', (
+    tester,
+  ) async {
+    final storage = _TestStorage();
+    final now = DateTime.now();
+    final provider = await _provider([
+      FeedRecord(
+        id: 'remove-once',
+        time: now.subtract(const Duration(hours: 1)),
+      ),
+      FeedRecord(id: 'keep', time: now.subtract(const Duration(hours: 2))),
+    ], storage: storage);
+    await tester.pumpWidget(_app(provider));
+    await tester.pumpAndSettle();
+    final before = storage.saveCalls;
+    final open = tester
+        .widget<AppButton>(
+          find.byKey(const ValueKey('delete-record-remove-once')),
+        )
+        .onPressed!;
+    open();
+    open();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppMessageDialog, skipOffstage: false), findsOneWidget);
+    expect(find.byType(CupertinoAlertDialog), findsNothing);
+    expect(find.byType(CupertinoDialogAction), findsNothing);
+    expect(
+      find.byWidgetPredicate((widget) => widget is InkResponse),
+      findsNothing,
+    );
+    final confirm = tester
+        .widget<AppButton>(find.byKey(const ValueKey('confirm-delete-record')))
+        .onPressed!;
+    confirm();
+    confirm();
+    await tester.pumpAndSettle();
+
+    expect(storage.saveCalls, before + 1);
+    expect(provider.feedHistory.map((record) => record.id), ['keep']);
+    expect((await storage.getFeedHistory()).single.id, 'keep');
+    expect(find.byType(AppMessageDialog), findsNothing);
+    expect(find.byType(HistoryScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('back and Escape dismiss deletion without changing records', (
+    tester,
+  ) async {
+    final storage = _TestStorage();
+    final provider = await _provider([
+      FeedRecord(
+        id: 'keep-on-cancel',
+        time: DateTime.now().subtract(const Duration(hours: 1)),
+      ),
+    ], storage: storage);
+    await tester.pumpWidget(_app(provider));
+    await tester.pumpAndSettle();
+    final before = storage.saveCalls;
+    final originalDeadline = provider.nextFeedTime;
+    for (final useEscape in [false, true]) {
+      await tester.tap(
+        find.byKey(const ValueKey('delete-record-keep-on-cancel')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AppMessageDialog), findsOneWidget);
+      expect(find.text('删除这条记录？'), findsOneWidget);
+      if (useEscape) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      } else {
+        await tester.binding.handlePopRoute();
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(AppMessageDialog), findsNothing);
+      expect(provider.feedHistory.single.id, 'keep-on-cancel');
+      expect(provider.nextFeedTime, originalDeadline);
+      expect(storage.saveCalls, before);
+      expect(find.byType(HistoryScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('failed deletion keeps the record and reports failure', (
     tester,
