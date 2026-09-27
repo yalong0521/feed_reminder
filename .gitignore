@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local design previews and screenshot reports
+/docs/design/qa/
+/docs/design/references/
+/design-qa.md
+
 # Symbolication related
 app.*.symbols
 

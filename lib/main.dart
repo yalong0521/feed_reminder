@@ -1,18 +1,9 @@
 import 'package:flutter/material.dart';
 import 'app.dart';
-import 'services/storage_service.dart';
-import 'services/notification_service.dart';
+import 'widgets/app_glass.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize services
-  final storageService = StorageService();
-  await storageService.init();
-
-  final notificationService = NotificationService();
-  await notificationService.init();
-  await notificationService.requestPermissions();
-
+  await AppGlass.initialize();
   runApp(const FeedReminderApp());
 }

@@ -1,5 +1,5 @@
 name: feed_reminder
-description: "A new Flutter project."
+description: "记录每一餐，按自己的节奏安排喂奶提醒。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,9 +31,9 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
+  # Required by Flutter's adaptive Cupertino controls, including web pickers.
   cupertino_icons: ^1.0.8
+  liquid_glass_widgets: 1.7.2
 
   flutter_localizations:
     sdk: flutter
@@ -43,9 +43,11 @@ dependencies:
   audioplayers: ^6.0.0
   wakelock_plus: ^1.2.0
   flutter_local_notifications: ^18.0.0
-  confetti: ^0.7.0
+  timezone: ^0.10.1
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
 
@@ -70,6 +72,12 @@ flutter:
   assets:
     - assets/sounds/
     - assets/img/
+    - assets/fonts/OFL-Inter.txt
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/InterVariable.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -107,3 +115,10 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/img/ic_launcher.jpg"
   remove_alpha_ios: true
+
+# Build the Windows test dependency locally instead of downloading a DLL.
+# The hook is a no-op for Android/iOS/web targets.
+hooks:
+  user_defines:
+    win32:
+      local_build: true
