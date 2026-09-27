@@ -14,7 +14,9 @@ class AudioService {
   bool _isPlaying = false;
   bool _loop = true;
   bool _disposed = false;
+  Object? _playbackError;
   bool get isPlaying => _isPlaying;
+  bool get hasPlaybackError => _playbackError != null;
 
   Future<void> _enqueue(Future<void> Function() operation) {
     final result = _pending.then((_) => operation());
@@ -32,13 +34,29 @@ class AudioService {
       },
       onError: (Object error, StackTrace stack) {
         _isPlaying = false;
+        _playbackError = error;
         debugPrint('Reminder audio unavailable: $error');
       },
     );
     _loop = loop;
-    await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.stop);
-    await player.play(AssetSource('sounds/reminder.wav'));
-    _isPlaying = true;
+    final resetPlayer = _playbackError != null;
+    _playbackError = null;
+    try {
+      // Android retains the source after a MediaPlayer error. Reusing that
+      // source without release can report "prepared" without starting sound.
+      if (resetPlayer) await player.release();
+      await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.stop);
+      // Completion/error events may arrive before the platform play future.
+      // Set this first so those events remain authoritative after it returns.
+      _isPlaying = true;
+      await player.play(AssetSource('sounds/reminder.wav'));
+      final error = _playbackError;
+      if (error != null) throw error;
+    } catch (error) {
+      _isPlaying = false;
+      _playbackError = error;
+      rethrow;
+    }
   });
 
   Future<void> stopReminder() => _enqueue(() async {

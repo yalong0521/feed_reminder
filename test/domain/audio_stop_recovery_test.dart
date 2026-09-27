@@ -10,7 +10,7 @@ import 'package:feed_reminder/utils/constants.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class _Audio extends Fake implements AudioService {
+class _Audio extends AudioService {
   bool playing = false;
   bool failStop = false;
   int stops = 0;

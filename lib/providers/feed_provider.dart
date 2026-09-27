@@ -49,6 +49,7 @@ class FeedProvider extends ChangeNotifier {
   bool _foreground = true;
   bool _hasTriggeredAlert = false;
   bool _alertAcknowledged = false;
+  bool _playbackRecoverySuppressed = false;
   bool _audioStopPending = false;
   bool _notificationErrorPending = false;
   bool _wasQuiet = false;
@@ -57,6 +58,7 @@ class FeedProvider extends ChangeNotifier {
   int _settingsRevision = 0;
   String? _error;
   DateTime? _lastFeedTime;
+  DateTime? _acknowledgedFeedTime;
   Duration _timeRemaining = const Duration(
     minutes: AppDefaults.feedIntervalMinutes,
   );
@@ -108,6 +110,17 @@ class FeedProvider extends ChangeNotifier {
       _alertAcknowledged ||
       !_soundEnabled;
 
+  bool get _shouldRecoverPlayback =>
+      !_playbackRecoverySuppressed &&
+      _soundLoopEnabled &&
+      !_mustStopAudio &&
+      _audioService.hasPlaybackError;
+
+  bool _wasAcknowledged(DateTime? time) =>
+      time != null &&
+      _acknowledgedFeedTime?.millisecondsSinceEpoch ==
+          time.millisecondsSinceEpoch;
+
   Future<void> _initialize() async {
     final settingsRevision = _settingsRevision;
     try {
@@ -129,10 +142,8 @@ class FeedProvider extends ChangeNotifier {
         _soundLoopEnabled = loop;
       }
       _lastFeedTime = _repository.lastFeedTime;
-      _alertAcknowledged =
-          _lastFeedTime != null &&
-          acknowledgedFeed?.millisecondsSinceEpoch ==
-              _lastFeedTime?.millisecondsSinceEpoch;
+      _acknowledgedFeedTime = acknowledgedFeed;
+      _alertAcknowledged = _wasAcknowledged(_lastFeedTime);
       _calculateCountdown();
       _isInitialized = true;
       await _syncReminder(reschedule: true);
@@ -174,7 +185,9 @@ class FeedProvider extends ChangeNotifier {
     } else {
       _state = FeedState.normal;
     }
-    if (_state != FeedState.alerting) _hasTriggeredAlert = false;
+    if (_state != FeedState.alerting) {
+      _hasTriggeredAlert = false;
+    }
   }
 
   void _tick() {
@@ -188,7 +201,8 @@ class FeedProvider extends ChangeNotifier {
         (_audioStopPending && _pendingReminderEffects == 0 && _mustStopAudio) ||
         (_pendingReminderEffects == 0 &&
             _state == FeedState.alerting &&
-            !_hasTriggeredAlert &&
+            (!_hasTriggeredAlert || _shouldRecoverPlayback) &&
+            !_playbackRecoverySuppressed &&
             !_alertAcknowledged &&
             _foreground &&
             !quiet)) {
@@ -215,6 +229,7 @@ class FeedProvider extends ChangeNotifier {
         _state == FeedState.alerting &&
         _soundEnabled &&
         _soundLoopEnabled &&
+        !_playbackRecoverySuppressed &&
         !_alertAcknowledged) {
       _hasTriggeredAlert = false;
     }
@@ -238,6 +253,7 @@ class FeedProvider extends ChangeNotifier {
     final acknowledgedFeed = _lastFeedTime;
     final acknowledgedRecord = feedHistory.firstOrNull?.id;
     _alertAcknowledged = true;
+    _playbackRecoverySuppressed = true;
     _hasTriggeredAlert = true;
     _notify();
     final stopped = await _syncReminder(reschedule: true);
@@ -256,6 +272,7 @@ class FeedProvider extends ChangeNotifier {
     }
     try {
       await _storage.setAcknowledgedFeedTime(acknowledgedFeed);
+      _acknowledgedFeedTime = acknowledgedFeed;
       if (_error == _acknowledgementError || _error == _audioStopError) {
         _error = null;
         _notify();
@@ -297,7 +314,10 @@ class FeedProvider extends ChangeNotifier {
             final latest = _repository.lastFeedTime;
             if (latest != _lastFeedTime) {
               _hasTriggeredAlert = false;
-              _alertAcknowledged = false;
+              _playbackRecoverySuppressed = false;
+              // Undo/deletion may restore a cycle that was already silenced.
+              // Only a successfully persisted acknowledgement can be restored.
+              _alertAcknowledged = _wasAcknowledged(latest);
             }
             _lastFeedTime = latest;
             _error = null;
@@ -358,7 +378,10 @@ class FeedProvider extends ChangeNotifier {
     _nightEndTime = end;
     _soundEnabled = sound;
     _soundLoopEnabled = loop;
-    if (restartAudio) _hasTriggeredAlert = false;
+    if (restartAudio) {
+      _hasTriggeredAlert = false;
+      _playbackRecoverySuppressed = false;
+    }
     _calculateCountdown();
     if (_state != FeedState.alerting) _hasTriggeredAlert = false;
     _notify();
@@ -449,9 +472,15 @@ class FeedProvider extends ChangeNotifier {
             );
           }
           if (_disposed) return false;
+          if (_shouldRecoverPlayback) {
+            _hasTriggeredAlert = false;
+            _error = _reminderError;
+            _notify();
+          }
           if (_state == FeedState.alerting &&
               !_isQuietAt(_clock()) &&
               _foreground &&
+              !_playbackRecoverySuppressed &&
               !_alertAcknowledged &&
               !_hasTriggeredAlert) {
             _hasTriggeredAlert = true;
@@ -487,6 +516,7 @@ class FeedProvider extends ChangeNotifier {
           }
           if (!effectFailed &&
               !_notificationErrorPending &&
+              !_shouldRecoverPlayback &&
               _error == _reminderError) {
             _error = null;
             _notify();

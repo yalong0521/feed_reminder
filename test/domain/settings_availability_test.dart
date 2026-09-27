@@ -69,30 +69,36 @@ void main() {
     );
   }
 
-  test('partially saved settings remain available to synchronization', () async {
-    final storage = _PartialWriteFailureStorage();
-    final settings = SettingsProvider(storage: storage);
-    addTearDown(settings.dispose);
-    await settings.ready;
-    final snapshots = <({int interval, bool nightMode})>[];
-    settings.addListener(() {
-      if (settings.isAvailable) {
-        snapshots.add((
-          interval: settings.feedIntervalMinutes,
-          nightMode: settings.nightModeEnabled,
-        ));
-      }
-    });
+  test(
+    'partially saved settings remain available to synchronization',
+    () async {
+      final storage = _PartialWriteFailureStorage();
+      final settings = SettingsProvider(storage: storage);
+      addTearDown(settings.dispose);
+      await settings.ready;
+      final snapshots = <({int interval, bool nightMode})>[];
+      settings.addListener(() {
+        if (settings.isAvailable) {
+          snapshots.add((
+            interval: settings.feedIntervalMinutes,
+            nightMode: settings.nightModeEnabled,
+          ));
+        }
+      });
 
-    await expectLater(
-      settings.updateSettings(feedIntervalMinutes: 60, nightModeEnabled: true),
-      throwsStateError,
-    );
+      await expectLater(
+        settings.updateSettings(
+          feedIntervalMinutes: 60,
+          nightModeEnabled: true,
+        ),
+        throwsStateError,
+      );
 
-    expect(settings.error, isNotNull);
-    expect(settings.isAvailable, isTrue);
-    expect(snapshots.last, (interval: 60, nightMode: false));
-    expect(await storage.getFeedInterval(), 60);
-    expect(await storage.getNightModeEnabled(), isFalse);
-  });
+      expect(settings.error, isNotNull);
+      expect(settings.isAvailable, isTrue);
+      expect(snapshots.last, (interval: 60, nightMode: false));
+      expect(await storage.getFeedInterval(), 60);
+      expect(await storage.getNightModeEnabled(), isFalse);
+    },
+  );
 }

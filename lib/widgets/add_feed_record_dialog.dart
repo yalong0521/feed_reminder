@@ -85,7 +85,9 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
     final provider = context.read<FeedProvider>();
     if (_saving || _picking || _closing || provider.isSaving) return;
     if (_selectedDate.isAfter(provider.referenceTime)) {
-      setState(() => _error = AppStrings.futureTimeError);
+      // The clock can move between the enabled button's build and its tap.
+      // Future-time errors are derived below so they expire with validity.
+      setState(() => _error = null);
       return;
     }
     if (_selectedDate.isBefore(DateTime(2020))) {
@@ -123,14 +125,15 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
     final colors = AppPalette.of(context);
     final size = MediaQuery.sizeOf(context);
     final compact = size.width > size.height && size.height <= 500;
-    final isFuture = _selectedDate.isAfter(
-      context.read<FeedProvider>().referenceTime,
+    final validity = context.select<FeedProvider, ({bool saving, bool future})>(
+      (provider) => (
+        saving: provider.isSaving,
+        future: _selectedDate.isAfter(provider.referenceTime),
+      ),
     );
+    final isFuture = validity.future;
     final error = isFuture ? AppStrings.futureTimeError : _error;
-    final providerSaving = context.select<FeedProvider, bool>(
-      (provider) => provider.isSaving,
-    );
-    final disabled = _saving || _picking || providerSaving;
+    final disabled = _saving || _picking || validity.saving;
     final dateField = _PickerField(
       key: const ValueKey('add-feed-date-field'),
       label: '喂奶日期',

@@ -609,6 +609,92 @@ void main() {
     },
   );
 
+  testWidgets(
+    'backfill becomes savable when a future selection reaches the current time',
+    (tester) async {
+      var now = DateTime(2026, 9, 27, 12);
+      final storage = _TestStorage();
+      final provider = await _provider([], storage: storage, clock: () => now);
+      await tester.pumpWidget(_app(provider, home: _dialogLauncher()));
+      await tester.tap(find.text('打开补记'));
+      await tester.pumpAndSettle();
+
+      Future<void> choose(String fieldKey, DateTime value) async {
+        await tester.tap(find.byKey(ValueKey(fieldKey)));
+        await tester.pumpAndSettle();
+        tester
+            .widget<CupertinoDatePicker>(
+              find.byKey(const ValueKey('app-date-time-picker')),
+            )
+            .onDateTimeChanged(value);
+        await tester.tap(find.text('完成'));
+        await tester.pumpAndSettle();
+      }
+
+      // A historical day permits any time of day. Returning to today keeps
+      // that time, so a future selection is possible without an invalid wheel.
+      await choose('add-feed-date-field', DateTime(2026, 9, 26));
+      await choose('add-feed-time-field', DateTime(2026, 9, 26, 12, 1));
+      await choose('add-feed-date-field', DateTime(2026, 9, 27));
+      final save = find.byKey(const ValueKey('add-feed-save'));
+      expect(tester.widget<AppButton>(save).onPressed, isNull);
+      expect(find.text(AppStrings.futureTimeError), findsOneWidget);
+      expect(storage.saveCalls, 0);
+
+      now = DateTime(2026, 9, 27, 12, 1);
+      await provider.refresh();
+      await tester.pumpAndSettle();
+      expect(tester.widget<AppButton>(save).onPressed, isNotNull);
+      expect(find.text(AppStrings.futureTimeError), findsNothing);
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(provider.feedHistory.single.time, now);
+      expect((await storage.getFeedHistory()).single.time, now);
+      expect(storage.saveCalls, 1);
+      expect(find.byType(AddFeedRecordDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'backfill clears a future-time validation error after the clock recovers',
+    (tester) async {
+      var now = DateTime(2026, 9, 27, 12);
+      final selected = now;
+      final storage = _TestStorage();
+      final provider = await _provider([], storage: storage, clock: () => now);
+      await tester.pumpWidget(_app(provider, home: _dialogLauncher()));
+      await tester.tap(find.text('打开补记'));
+      await tester.pumpAndSettle();
+      final save = find.byKey(const ValueKey('add-feed-save'));
+      expect(tester.widget<AppButton>(save).onPressed, isNotNull);
+
+      // The wall clock may move between a rendered enabled button and its tap.
+      now = now.subtract(const Duration(minutes: 1));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(tester.widget<AppButton>(save).onPressed, isNull);
+      expect(find.text(AppStrings.futureTimeError), findsOneWidget);
+      expect(storage.saveCalls, 0);
+
+      now = selected.add(const Duration(seconds: 1));
+      await provider.refresh();
+      await tester.pumpAndSettle();
+      expect(tester.widget<AppButton>(save).onPressed, isNotNull);
+      expect(find.text(AppStrings.futureTimeError), findsNothing);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(provider.feedHistory.single.time, selected);
+      expect(storage.saveCalls, 1);
+      expect(find.byType(AddFeedRecordDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets('saving backfill disables repeated submission and cancellation', (
     tester,
   ) async {

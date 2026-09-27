@@ -12,7 +12,7 @@ import 'package:feed_reminder/utils/time_utils.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class FakeAudio extends Fake implements AudioService {
+class FakeAudio extends AudioService {
   int plays = 0;
   int stops = 0;
   bool playing = false;

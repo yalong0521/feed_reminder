@@ -35,6 +35,9 @@ class _Player extends Fake implements AudioPlayer {
   Future<void> stop() async => operations.add('stop');
 
   @override
+  Future<void> release() async => operations.add('release');
+
+  @override
   Future<void> dispose() async {
     operations.add('dispose');
     await completions.close();
@@ -88,6 +91,10 @@ void main() {
       expect(audio.isPlaying, isFalse);
       await audio.playReminder();
       expect(audio.isPlaying, isTrue);
+      expect(
+        player.operations.where((operation) => operation == 'release'),
+        hasLength(1),
+      );
     },
   );
 
@@ -102,6 +109,33 @@ void main() {
     await Future.wait([playing, stopped]);
 
     expect(player.operations.last, 'stop');
+    expect(audio.isPlaying, isFalse);
+  });
+
+  test(
+    'an error during playback startup cannot report successful playback',
+    () async {
+      player.playGate = Completer<void>();
+      final playing = audio.playReminder();
+      final failed = expectLater(playing, throwsA(isA<PlatformException>()));
+      await Future<void>.delayed(Duration.zero);
+      player.completions.addError(PlatformException(code: 'playback_failed'));
+      player.playGate!.complete();
+      await failed;
+      expect(audio.isPlaying, isFalse);
+
+      await audio.playReminder();
+      expect(audio.isPlaying, isTrue);
+    },
+  );
+
+  test('one-shot completion during startup stays completed', () async {
+    player.playGate = Completer<void>();
+    final playing = audio.playReminder(loop: false);
+    await Future<void>.delayed(Duration.zero);
+    player.completions.add(null);
+    player.playGate!.complete();
+    await playing;
     expect(audio.isPlaying, isFalse);
   });
 

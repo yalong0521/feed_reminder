@@ -16,6 +16,7 @@ import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
+import 'package:feed_reminder/widgets/app_message_dialog.dart';
 
 void _expectNoMaterialInteractions() {
   expect(
@@ -108,6 +109,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('喂奶记录'), findsOneWidget);
     _expectNoMaterialInteractions();
+    final delete = find.byKey(
+      ValueKey('delete-record-${feed.feedHistory.single.id}'),
+    );
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppMessageDialog), findsOneWidget);
+    _expectNoMaterialInteractions();
+    await tester.tap(find.byKey(const ValueKey('cancel-delete-record')));
+    await tester.pumpAndSettle();
+    expect(feed.feedHistory, hasLength(1));
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('confirm-delete-record')));
+    await tester.pumpAndSettle();
+    expect(feed.feedHistory, isEmpty);
+    expect(feed.nextFeedTime, isNull);
+    expect(find.byType(AppMessageDialog), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await NotificationService().cancelAll();
