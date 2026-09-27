@@ -12,6 +12,7 @@ import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/app_message_dialog.dart';
+import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -393,6 +394,98 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets(
+    'outside taps cancel deletion without touching the list and allow reopening',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final now = DateTime(2026, 9, 27, 12);
+      final storage = _TestStorage();
+      final provider = await _provider(
+        [
+          FeedRecord(
+            id: 'keep-latest',
+            time: now.subtract(const Duration(hours: 1)),
+          ),
+          FeedRecord(
+            id: 'keep-older',
+            time: now.subtract(const Duration(hours: 2)),
+          ),
+        ],
+        storage: storage,
+        clock: () => now,
+      );
+      var listPointerDowns = 0;
+      await tester.pumpWidget(
+        _app(
+          provider,
+          home: Listener(
+            onPointerDown: (_) => listPointerDowns++,
+            child: const HistoryScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final latestDelete = find.byKey(
+        const ValueKey('delete-record-keep-latest'),
+      );
+      final olderDelete = find.byKey(
+        const ValueKey('delete-record-keep-older'),
+      );
+      expect(olderDelete.hitTestable(), findsOneWidget);
+      final coveredListPoint = tester.getCenter(olderDelete);
+      final originalRecords = provider.feedHistory
+          .map((record) => record.toJson())
+          .toList();
+      final originalStoredRecords = (await storage.getFeedHistory())
+          .map((record) => record.toJson())
+          .toList();
+      final originalDeadline = provider.nextFeedTime;
+      final originalWrites = storage.saveCalls;
+
+      await tester.tap(latestDelete);
+      await tester.pumpAndSettle();
+      final dialog = find.byType(AppMessageDialog);
+      expect(dialog, findsOneWidget);
+      final surface = find
+          .descendant(of: dialog, matching: find.byType(AppSurface))
+          .first;
+      expect(tester.getRect(surface).contains(coveredListPoint), isFalse);
+      final pointersBeforeDismissal = listPointerDowns;
+      await tester.tapAt(coveredListPoint);
+      await tester.pumpAndSettle();
+
+      expect(dialog, findsNothing);
+      expect(listPointerDowns, pointersBeforeDismissal);
+      expect(
+        provider.feedHistory.map((record) => record.toJson()),
+        originalRecords,
+      );
+      expect(
+        (await storage.getFeedHistory()).map((record) => record.toJson()),
+        originalStoredRecords,
+      );
+      expect(provider.nextFeedTime, originalDeadline);
+      expect(storage.saveCalls, originalWrites);
+      expect(find.byType(HistoryScreen), findsOneWidget);
+
+      await tester.tap(latestDelete);
+      await tester.pumpAndSettle();
+      expect(dialog, findsOneWidget);
+      expect(find.text('确认删除'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('cancel-delete-record')));
+      await tester.pumpAndSettle();
+      expect(dialog, findsNothing);
+      expect(provider.feedHistory, hasLength(2));
+      expect(provider.nextFeedTime, originalDeadline);
+      expect(storage.saveCalls, originalWrites);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('back and Escape dismiss deletion without changing records', (
     tester,

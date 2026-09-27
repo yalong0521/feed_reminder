@@ -41,118 +41,119 @@ class AppMessageDialog extends StatelessWidget {
             child: Semantics(
               scopesRoute: true,
               explicitChildNodes: true,
-              child: AppSurface(
-                radius: 24,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final body = Padding(
-                      padding: EdgeInsets.all(inset),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 28,
-                                height: 2,
-                                color: colors.primary,
-                              ),
-                              if (icon != null) ...[
-                                const SizedBox(width: 10),
-                                ExcludeSemantics(
-                                  child: Icon(
-                                    icon,
-                                    size: 18,
-                                    color: colors.primary,
+              child: Listener(
+                // Paper is painted by an IgnorePointer surface; absorb its
+                // inner padding so only taps outside the sheet dismiss it.
+                behavior: HitTestBehavior.opaque,
+                child: AppSurface(
+                  radius: 24,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final body = Padding(
+                        padding: EdgeInsets.all(inset),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Semantics(
+                              namesRoute: true,
+                              header: true,
+                              child: Row(
+                                children: [
+                                  if (icon != null) ...[
+                                    ExcludeSemantics(
+                                      child: Icon(
+                                        icon,
+                                        size: 22,
+                                        color: colors.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      style: TextStyle(
+                                        fontFamily: 'JournalChinese',
+                                        fontSize: 24,
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w500,
+                                        color: colors.textPrimary,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          SizedBox(height: compact ? 12 : 18),
-                          Semantics(
-                            namesRoute: true,
-                            header: true,
-                            child: Text(
-                              title,
-                              style: TextStyle(
-                                fontFamily: 'JournalChinese',
-                                fontSize: 24,
-                                height: 1.4,
-                                fontWeight: FontWeight.w500,
-                                color: colors.textPrimary,
+                                ],
                               ),
                             ),
-                          ),
-                          if (detail != null) ...[
-                            const SizedBox(height: 16),
-                            detail!,
-                          ],
-                          const SizedBox(height: 12),
-                          DefaultTextStyle.merge(
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 15,
-                              height: 1.6,
+                            if (detail != null) ...[
+                              const SizedBox(height: 16),
+                              detail!,
+                            ],
+                            const SizedBox(height: 12),
+                            DefaultTextStyle.merge(
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 15,
+                                height: 1.6,
+                              ),
+                              child: content,
                             ),
-                            child: content,
-                          ),
-                        ],
-                      ),
-                    );
-                    final actionBar = Padding(
-                      padding: EdgeInsets.all(inset),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final stackActions =
-                              actions.length > 1 &&
-                              (constraints.maxWidth < 280 ||
-                                  (constraints.maxWidth < 360 &&
-                                      MediaQuery.textScalerOf(
-                                            context,
-                                          ).scale(16) >
-                                          24));
-                          if (stackActions) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                          ],
+                        ),
+                      );
+                      final actionBar = Padding(
+                        padding: EdgeInsets.all(inset),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final stackActions =
+                                actions.length > 1 &&
+                                (constraints.maxWidth < 280 ||
+                                    (constraints.maxWidth < 360 &&
+                                        MediaQuery.textScalerOf(
+                                              context,
+                                            ).scale(16) >
+                                            24));
+                            if (stackActions) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (var i = 0; i < actions.length; i++) ...[
+                                    if (i > 0) const SizedBox(height: 8),
+                                    actions[i],
+                                  ],
+                                ],
+                              );
+                            }
+                            return Row(
                               children: [
                                 for (var i = 0; i < actions.length; i++) ...[
-                                  if (i > 0) const SizedBox(height: 8),
-                                  actions[i],
+                                  if (i > 0) const SizedBox(width: 12),
+                                  Expanded(child: actions[i]),
                                 ],
                               ],
                             );
-                          }
-                          return Row(
-                            children: [
-                              for (var i = 0; i < actions.length; i++) ...[
-                                if (i > 0) const SizedBox(width: 12),
-                                Expanded(child: actions[i]),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-                    );
-                    // A keyboard can leave less height than a single action.
-                    // In that case both content and actions must be scrollable.
-                    final scrollAll = constraints.maxHeight < 240;
-                    final sheet = Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (scrollAll)
-                          body
-                        else
-                          Flexible(child: SingleChildScrollView(child: body)),
-                        Divider(height: 1, color: colors.border),
-                        actionBar,
-                      ],
-                    );
-                    return scrollAll
-                        ? SingleChildScrollView(child: sheet)
-                        : sheet;
-                  },
+                          },
+                        ),
+                      );
+                      // A keyboard can leave less height than a single action.
+                      // In that case both content and actions must be scrollable.
+                      final scrollAll = constraints.maxHeight < 240;
+                      final sheet = Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (scrollAll)
+                            body
+                          else
+                            Flexible(child: SingleChildScrollView(child: body)),
+                          Divider(height: 1, color: colors.border),
+                          actionBar,
+                        ],
+                      );
+                      return scrollAll
+                          ? SingleChildScrollView(child: sheet)
+                          : sheet;
+                    },
+                  ),
                 ),
               ),
             ),
@@ -169,7 +170,8 @@ RawDialogRoute<T> createAppMessageDialogRoute<T>(
   RouteSettings? settings,
 }) => RawDialogRoute<T>(
   settings: settings,
-  barrierDismissible: false,
+  barrierDismissible: true,
+  barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
   barrierColor: Colors.black.withValues(alpha: .3),
   traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
   transitionDuration: Duration(

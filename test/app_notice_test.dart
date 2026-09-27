@@ -124,11 +124,7 @@ void main() {
     expect(find.text('旧操作'), findsNothing);
     expect(find.text('请重试最后一次保存'), findsOneWidget);
     expect(find.text('重试保存'), findsOneWidget);
-    await tester.tapAt(const Offset(2, 2));
-    await tester.pumpAndSettle();
-    expect(_dialog, findsOneWidget);
-
-    // Errors remain visible until explicitly acknowledged, regardless of the
+    // Errors remain visible until dismissed, regardless of the
     // duration accepted by the old helper API.
     await tester.pump(const Duration(minutes: 1));
     expect(_dialog, findsOneWidget);
@@ -142,6 +138,47 @@ void main() {
     expect(_dialog, findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'outside taps dismiss errors without actions and allow reopening',
+    (tester) async {
+      final host = await _mount(tester);
+      var actionCalls = 0;
+      for (final message in ['保存失败', '再次保存失败']) {
+        showAppNotice(
+          host.sourceContext,
+          message,
+          actionLabel: '重试保存',
+          onAction: () => actionCalls++,
+        );
+        await tester.pumpAndSettle();
+        expect(_dialog, findsOneWidget);
+        expect(find.text(message), findsOneWidget);
+
+        // The message itself is not the modal barrier.
+        await tester.tap(find.text(message));
+        await tester.pumpAndSettle();
+        expect(_dialog, findsOneWidget);
+        final paper = tester.getRect(
+          find.descendant(of: _dialog, matching: find.byType(AppSurface)).first,
+        );
+        // Padding inside the paper is part of the dialog, not its barrier.
+        await tester.tapAt(Offset(paper.right - 8, paper.center.dy));
+        await tester.pumpAndSettle();
+        expect(_dialog, findsOneWidget);
+        await tester.tapAt(Offset(paper.center.dx, paper.bottom - 8));
+        await tester.pumpAndSettle();
+        expect(_dialog, findsOneWidget);
+        await tester.tapAt(const Offset(2, 2));
+        await tester.pumpAndSettle();
+        expect(_dialog, findsNothing);
+        expect(actionCalls, 0);
+        expect(tester.takeException(), isNull);
+      }
+      expect(host.observer.dialogPushes, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('a replacement removes an obsolete optional action', (
     tester,
