@@ -88,13 +88,12 @@ abstract final class AppTheme {
         ),
         textStyle: TextStyle(color: p.textPrimary, fontSize: 13),
       ),
-      pageTransitionsTheme: const PageTransitionsTheme(
+      pageTransitionsTheme: PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+          // Include Flutter-OH's extra platform without coupling ordinary
+          // Android/iOS builds to the fork's TargetPlatform.ohos constant.
+          for (final platform in TargetPlatform.values)
+            platform: const CupertinoPageTransitionsBuilder(),
         },
       ),
     );

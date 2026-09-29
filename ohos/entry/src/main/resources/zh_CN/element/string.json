@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "离线喂奶记录与提醒"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "记录喂奶时间并提醒下一餐"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "奶点记"
+    },
+    {
+      "name": "reminder_permission_reason",
+      "value": "用于在应用关闭或后台运行时提醒下一次喂奶"
+    }
+  ]
+}

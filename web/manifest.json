@@ -1,6 +1,6 @@
 {
-    "name": "喂奶提醒",
-    "short_name": "喂奶提醒",
+    "name": "奶点记",
+    "short_name": "奶点记",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FAF6EE",

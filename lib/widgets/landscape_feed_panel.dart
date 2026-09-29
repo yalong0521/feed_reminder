@@ -106,7 +106,7 @@ class LandscapeFeedPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '喂奶提醒',
+            AppStrings.appName,
             style: TextStyle(
               fontFamily: 'JournalChinese',
               color: p.primary,

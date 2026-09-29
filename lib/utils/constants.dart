@@ -172,7 +172,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
 }
 
 class AppStrings {
-  static const String appName = '喂奶提醒';
+  static const String appName = '奶点记';
   static const String recordFeed = '滑动记录喂奶';
   static const String recordComplete = '✓ 已记录';
   static const String lastFeed = '上次喂奶';

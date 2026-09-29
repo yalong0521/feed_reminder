@@ -1,0 +1,37 @@
+# Applied only to build/ohos_workspace, never to the main Flutter workspace.
+dependency_overrides:
+  # The OH implementation needs its AudioContext and platform initialization.
+  audioplayers:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audioplayers.git
+      ref: b853cdafdef1549be31b478a954f6d8b36d314e6
+      path: packages/audioplayers
+  audioplayers_ohos:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audioplayers.git
+      ref: b853cdafdef1549be31b478a954f6d8b36d314e6
+      path: packages/audioplayers_ohos
+  audioplayers_platform_interface:
+    git:
+      url: https://gitcode.com/CPF-Flutter/flutter_audioplayers.git
+      ref: b853cdafdef1549be31b478a954f6d8b36d314e6
+      path: packages/audioplayers_platform_interface
+  # The fork otherwise resolves these packages from unpinned Git branches.
+  audioplayers_android: 5.2.1
+  audioplayers_darwin: 6.4.0
+  audioplayers_linux: 4.2.1
+  audioplayers_web: 5.2.0
+  audioplayers_windows: 4.3.0
+  path_provider: 2.1.5
+  # In this release OH support is part of wakelock_plus itself. Its companion
+  # interface decodes the native OH isEnabled reply differently from pub.dev.
+  wakelock_plus:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus.git
+      ref: 7009f270c6bb1bb4aaf373e226a873a126f9b9f4
+      path: wakelock_plus
+  wakelock_plus_platform_interface:
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus.git
+      ref: 7009f270c6bb1bb4aaf373e226a873a126f9b9f4
+      path: wakelock_plus_platform_interface

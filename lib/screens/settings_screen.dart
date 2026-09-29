@@ -6,6 +6,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
@@ -200,6 +201,9 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<void> _requestPermission(Future<void> Function() action) async {
     try {
       await action();
+      if (mounted && context.read<NotificationService>().isHarmonyOS) {
+        await context.read<FeedProvider>().refresh();
+      }
     } catch (_) {
       _showError('无法打开权限设置，请在系统设置中检查应用权限。');
     }
@@ -430,6 +434,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                         description: '离开应用后，也能收到下一次提醒。',
                         footer: defaultTargetPlatform == TargetPlatform.android
                             ? '未授权准时提醒时，系统可能延迟发送通知。'
+                            : notifications.isHarmonyOS
+                            ? '鸿蒙静音提醒默认仅显示在通知中心，后台声音以系统通知设置为准。'
                             : null,
                         children: [
                           _PermissionRow(

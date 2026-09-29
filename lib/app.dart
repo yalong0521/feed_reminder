@@ -82,7 +82,11 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   }
 
   Future<void> _initializeSystemUi() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            !_notifications.isHarmonyOS)) {
+      return;
+    }
     try {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } catch (error) {
@@ -94,6 +98,11 @@ class _FeedReminderAppState extends State<FeedReminderApp>
     try {
       await _notifications.init();
       await _notifications.requestPermissions();
+      if (mounted && _notifications.isHarmonyOS) {
+        // Restoring records can attempt scheduling before the permission
+        // dialog finishes. Retry once the user has allowed notifications.
+        await _feed.refresh();
+      }
     } catch (error) {
       // Notification permissions must never prevent access to saved records.
       debugPrint('Notification initialization unavailable: $error');
@@ -378,7 +387,7 @@ class _AppNavigation extends StatelessWidget {
                         FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
-                            '喂奶提醒',
+                            AppStrings.appName,
                             style: TextStyle(
                               fontFamily: 'JournalChinese',
                               color: p.primary,

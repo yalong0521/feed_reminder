@@ -1,0 +1,13 @@
+{
+  modelVersion: "5.1.0",
+  name: "feed_reminder",
+  version: "1.0.0",
+  description: "记录每一餐，按自己的节奏安排喂奶提醒。",
+  main: "",
+  author: "",
+  license: "",
+  dependencies: {},
+  devDependencies: {
+    "@ohos/hypium": "1.0.6",
+  },
+}

@@ -5,19 +5,27 @@ import 'package:timezone/timezone.dart' as tz;
 
 /// One native reminder per feeding cycle. Unsupported preview platforms are safe.
 class NotificationService {
+  static const _harmonyChannel = MethodChannel('feed_reminder/notifications');
+  static const _title = '到设定的喂奶时间了';
+  static const _body = '留意宝宝的状态，准备好后记下这一餐。';
   final FlutterLocalNotificationsPlugin _notifications;
   Future<void>? _initialization;
 
   NotificationService({FlutterLocalNotificationsPlugin? notifications})
     : _notifications = notifications ?? FlutterLocalNotificationsPlugin();
 
+  // Compare the name so Android/iOS builds still compile with upstream Flutter,
+  // whose TargetPlatform enum does not contain the Flutter-OH extension.
+  bool get isHarmonyOS => !kIsWeb && defaultTargetPlatform.name == 'ohos';
+
   bool get isSupported =>
-      !kIsWeb &&
-      const [
-        TargetPlatform.android,
-        TargetPlatform.iOS,
-        TargetPlatform.macOS,
-      ].contains(defaultTargetPlatform);
+      isHarmonyOS ||
+      (!kIsWeb &&
+          const [
+            TargetPlatform.android,
+            TargetPlatform.iOS,
+            TargetPlatform.macOS,
+          ].contains(defaultTargetPlatform));
 
   Future<void> init() => _initialization ??= _initialize().catchError((
     Object error,
@@ -30,6 +38,10 @@ class NotificationService {
 
   Future<void> _initialize() async {
     if (!isSupported) return;
+    if (isHarmonyOS) {
+      await _harmonyChannel.invokeMethod<void>('initialize');
+      return;
+    }
     const darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -47,6 +59,10 @@ class NotificationService {
   Future<void> requestPermissions() async {
     if (!isSupported) return;
     await init();
+    if (isHarmonyOS) {
+      await _harmonyChannel.invokeMethod<void>('requestPermissions');
+      return;
+    }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         await _notifications
@@ -111,12 +127,15 @@ class NotificationService {
   Future<void> showFeedReminder({bool playSound = true}) async {
     if (!isSupported) return;
     await init();
-    await _notifications.show(
-      0,
-      '到设定的喂奶时间了',
-      '留意宝宝的状态，准备好后记下这一餐。',
-      _details(playSound),
-    );
+    if (isHarmonyOS) {
+      await _harmonyChannel.invokeMethod<void>('show', {
+        'title': _title,
+        'body': _body,
+        'playSound': playSound,
+      });
+      return;
+    }
+    await _notifications.show(0, _title, _body, _details(playSound));
   }
 
   Future<void> scheduleFeedReminder(
@@ -126,6 +145,17 @@ class NotificationService {
     if (!isSupported) return;
     await init();
     if (!when.isAfter(DateTime.now())) return;
+    if (isHarmonyOS) {
+      // Epoch milliseconds retain the exact instant across Dart/ArkTS; a UTC
+      // date string without its offset would be reinterpreted as local time.
+      await _harmonyChannel.invokeMethod<void>('schedule', {
+        'epochMilliseconds': when.millisecondsSinceEpoch,
+        'title': _title,
+        'body': _body,
+        'playSound': playSound,
+      });
+      return;
+    }
     final android = _notifications
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -135,8 +165,8 @@ class NotificationService {
     Future<void> schedule(AndroidScheduleMode mode) =>
         _notifications.zonedSchedule(
           0,
-          '到设定的喂奶时间了',
-          '留意宝宝的状态，准备好后记下这一餐。',
+          _title,
+          _body,
           tz.TZDateTime.from(when.toUtc(), tz.UTC),
           _details(playSound),
           androidScheduleMode: mode,
@@ -158,6 +188,10 @@ class NotificationService {
   Future<void> cancelAll() async {
     if (!isSupported) return;
     await init();
+    if (isHarmonyOS) {
+      await _harmonyChannel.invokeMethod<void>('cancelAll');
+      return;
+    }
     await _notifications.cancelAll();
   }
 }

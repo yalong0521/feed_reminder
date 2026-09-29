@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Offline feeding records and reminders"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Record feedings and receive the next reminder"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "奶点记"
+    },
+    {
+      "name": "reminder_permission_reason",
+      "value": "Remind you of the next feeding while the app is closed or in the background"
+    }
+  ]
+}

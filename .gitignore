@@ -48,3 +48,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local HarmonyOS signing configuration and credentials.
+/ohos/build-profile.local.json5
+/ohos/signing/

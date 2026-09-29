@@ -122,8 +122,17 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/img/ic_launcher.jpg"
+  image_path: "assets/img/app_icon.png"
   remove_alpha_ios: true
+  web:
+    generate: true
+    background_color: "#FAF6EE"
+    theme_color: "#AD593C"
+  windows:
+    generate: true
+    icon_size: 256
+  macos:
+    generate: true
 
 # Build the Windows test dependency locally instead of downloading a DLL.
 # The hook is a no-op for Android/iOS/web targets.

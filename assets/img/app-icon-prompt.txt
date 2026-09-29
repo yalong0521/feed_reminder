@@ -1,0 +1,18 @@
+奶点记图标设计
+
+工具：内置 image_gen。
+正式母图：app_icon.png，1024 × 1024，RGB、不透明。
+视觉：奶油白奶瓶与陶土色时钟指针，呼应喂养记录和到点提醒。
+生成图仅做尺寸导出，未手工重绘；系统负责桌面图标外轮廓裁切。
+
+原始生成提示词：
+
+Use case: logo-brand.
+Asset type: production mobile app launcher icon, single square 1024x1024 master for a Chinese baby feeding journal and reminder app called 奶点记. Generate ONE finished icon only, not a presentation board or mockup.
+Primary request: a beautifully crafted, distinctive, warm and trustworthy app icon combining a baby milk bottle with the idea of a feeding time reminder.
+Subject and visual hierarchy: ONE centered, upright, delightfully rounded ivory baby milk bottle with a compact rounded nipple and a broad rounded collar. Its softly rounded bottle body incorporates a small simple terracotta clock face: only two thick rounded hands and a small central dot, embedded directly into the bottle body, no separate floating clock badge, no numbers or busy ticks. The silhouette should clearly read as a feeding bottle. The warm ivory nipple/collar may have a slightly warmer peach tint. Keep the neck short, the bottle body broad and friendly, with one cohesive silhouette. Balanced adult-facing baby-care identity, gentle and premium.
+Style/medium: precise iconic graphic with restrained soft ceramic-like 2.5D relief, smooth matte surfaces, excellent polished curves, softly beveled highlights, very subtle ambient shading. Strong clear graphic, not a realistic product render, not a cartoon character, not an emoji.
+Color palette: use the existing app palette, full-bleed warm terracotta background near #AD593C, with a very subtle lighter peach warmth toward the upper left, and a bright milk/ivory bottle near #FFFCF6. Clock hands dark terracotta near #AD593C for strong contrast. Overall calm warm tones, excellent legibility.
+Composition: square image completely filled to all four edges with the background color; background is FLAT edge-to-edge artwork, no outer rounded-square tile, no border, no white margins, no inset app icon container, no exterior shadow. Bottle and clock together centered and confined to the central 62 percent of the image width and height to survive circular and rounded system masks. Ample visually balanced breathing room, bottle large enough for recognition at 48px.
+Lighting: restrained soft light from upper left, no dramatic reflections.
+Constraints: no text, no letters, no Chinese characters, no watermark, no numbers, no extra hearts or stars, no sparkles, no teddy bears, no baby photo, no branding of other products, no scenery, no floating decorations, no frame. Original artwork, sharp clean contours, no transparent pixels.
