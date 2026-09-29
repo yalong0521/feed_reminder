@@ -145,9 +145,11 @@ void main() {
       clock: () => now,
     );
     await feed.ready;
+    await tester.pump();
     expect(audio.playing, isTrue);
     audio.failStop = true;
     await feed.recordFeed();
+    await tester.pump();
     expect(feed.state, FeedState.normal);
     expect(feed.feedHistory, hasLength(2));
     audio.failStop = false;

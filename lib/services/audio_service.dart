@@ -35,7 +35,7 @@ class AudioService {
       onError: (Object error, StackTrace stack) {
         _isPlaying = false;
         _playbackError = error;
-        debugPrint('Reminder audio unavailable: $error');
+        debugPrint('Reminder audio unavailable: $error\n$stack');
       },
     );
     _loop = loop;

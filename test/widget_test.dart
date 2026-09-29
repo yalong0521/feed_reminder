@@ -65,6 +65,25 @@ class _Notifications extends NotificationService {
   Future<void> cancelAll() async {}
 }
 
+class _DelayedScheduleNotifications extends _Notifications {
+  final firstSchedule = Completer<void>();
+  int schedules = 0;
+  DateTime? scheduled;
+
+  @override
+  Future<void> scheduleFeedReminder(
+    DateTime when, {
+    bool playSound = true,
+  }) async {
+    schedules++;
+    if (schedules == 1) await firstSchedule.future;
+    scheduled = when;
+  }
+
+  @override
+  Future<void> cancelAll() async => scheduled = null;
+}
+
 class _FailFirstAcknowledgementStorage extends StorageService {
   int acknowledgementAttempts = 0;
 
@@ -225,6 +244,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   FakeViewPadding padding = FakeViewPadding.zero,
   StorageService? storageOverride,
   AudioService? audioOverride,
+  NotificationService? notificationsOverride,
   DateTime Function()? clock,
 }) async {
   tester.view.physicalSize = size;
@@ -260,7 +280,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   });
   final storage = storageOverride ?? StorageService();
   final audio = audioOverride ?? _Audio();
-  final notifications = _Notifications();
+  final notifications = notificationsOverride ?? _Notifications();
   final feed = FeedProvider(
     storage: storage,
     audioService: audio,
@@ -1059,6 +1079,61 @@ void main() {
       _expectNoMaterialInteractions();
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'pending notification scheduling does not block saving, later records, or undo',
+    (tester) async {
+      final notifications = _DelayedScheduleNotifications();
+      final storage = StorageService();
+      var now = DateTime(2026, 9, 29, 12);
+      final app = await _mount(
+        tester,
+        storageOverride: storage,
+        notificationsOverride: notifications,
+        clock: () => now,
+      );
+      try {
+        await _slideToRecord(tester);
+        await tester.pump();
+        expect(notifications.schedules, 1);
+        expect(notifications.firstSchedule.isCompleted, isFalse);
+        expect(app.feed.isSaving, isFalse);
+        expect(find.text('正在保存…'), findsNothing);
+        expect(app.feed.feedHistory, hasLength(1));
+        expect(await storage.getFeedHistory(), hasLength(1));
+        final firstRecord = app.feed.feedHistory.single;
+
+        // The slider's existing confirmation window expires independently of
+        // the native notification callback, allowing another deliberate record.
+        now = now.add(const Duration(minutes: 1));
+        await tester.pump(const Duration(seconds: 6));
+        await _slideToRecord(tester);
+        await tester.pumpAndSettle();
+        expect(app.feed.isSaving, isFalse);
+        expect(app.feed.feedHistory, hasLength(2));
+        expect(await storage.getFeedHistory(), hasLength(2));
+
+        await tester.tap(find.byKey(const ValueKey('feed-slide-undo')));
+        await tester.pumpAndSettle();
+        expect(app.feed.isSaving, isFalse);
+        expect(app.feed.feedHistory.single.id, firstRecord.id);
+        expect((await storage.getFeedHistory()).single.id, firstRecord.id);
+        expect(notifications.firstSchedule.isCompleted, isFalse);
+
+        notifications.firstSchedule.complete();
+        await tester.pump();
+        expect(notifications.schedules, 3);
+        expect(notifications.scheduled, app.feed.nextFeedTime);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!notifications.firstSchedule.isCompleted) {
+          notifications.firstSchedule.complete();
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      }
     },
   );
 

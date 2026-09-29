@@ -13,12 +13,21 @@ import {
   MethodResult
 } from '@ohos/flutter_ohos';
 
+interface NotificationErrorDetails {
+  method: string;
+  operation: string;
+  code: string | number | null;
+  message: string;
+}
+
 class NotificationBridgeError extends Error {
   readonly code: string;
+  readonly details: NotificationErrorDetails | undefined;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details?: NotificationErrorDetails) {
     super(message);
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -236,7 +245,32 @@ export default class FeedReminderNotifications implements FlutterPlugin, Ability
     // The app has only one reminder type. Query-free cancellation also works
     // after a process restart, without a separate persisted reminder-id cache.
     await this.cancelAll();
-    await reminderAgentManager.publishReminder(request);
+    try {
+      await reminderAgentManager.publishReminder(request);
+    } catch (error) {
+      const nativeError = error as BusinessError;
+      const details: NotificationErrorDetails = {
+        method: 'schedule',
+        operation: 'reminderAgentManager.publishReminder',
+        code: nativeError.code ?? null,
+        message: nativeError.message || '系统未返回错误说明。'
+      };
+      if (nativeError.code === 201) {
+        throw new NotificationBridgeError('reminder_permission_denied',
+          '当前应用未获得后台代理提醒权限，请检查权限声明和应用签名授权。', details);
+      }
+      if (nativeError.code === 1700002) {
+        // The system reports a quota restriction, not its cause. Preserve the
+        // native response without inferring this app's approval status.
+        throw new NotificationBridgeError('reminder_limit_exceeded',
+          '后台提醒额度受限，暂时无法添加提醒。', details);
+      }
+      if (nativeError.code === 1700001) {
+        throw new NotificationBridgeError('notification_permission_denied',
+          '系统通知未开启，请在系统设置中允许通知。', details);
+      }
+      throw new NotificationBridgeError('schedule_failed', details.message, details);
+    }
   }
 
   private async cancelAll(): Promise<void> {
@@ -260,18 +294,25 @@ export default class FeedReminderNotifications implements FlutterPlugin, Ability
   }
 
   private reportError(result: MethodResult, method: string, error: Error): void {
+    const nativeError = error as BusinessError;
+    const details: NotificationErrorDetails = error instanceof NotificationBridgeError && error.details !== undefined ?
+      error.details : {
+        method: method,
+        operation: method,
+        code: nativeError.code ?? null,
+        message: error.message || '系统未返回错误说明。'
+      };
+    // Preserve the failing operation and native response without recording
+    // notification content or feeding data.
+    console.error(`FeedReminderNotifications failed: ${JSON.stringify(details)}`);
     if (error instanceof NotificationBridgeError) {
-      result.error(error.code, error.message, null);
+      result.error(error.code, error.message, details);
       return;
     }
-    const nativeError = error as BusinessError;
     if (nativeError.code === 1600004 || nativeError.code === 1700001) {
-      result.error('notification_permission_denied', '系统通知未开启，请在系统设置中允许通知。', nativeError.code);
-    } else if (nativeError.code === 201) {
-      result.error('reminder_permission_denied',
-        '系统未授予提醒权限，请检查后台代理提醒权限声明和应用签名授权。', nativeError.code);
+      result.error('notification_permission_denied', '系统通知未开启，请在系统设置中允许通知。', details);
     } else {
-      result.error(`${method}_failed`, nativeError.message || '系统提醒服务暂不可用。', nativeError.code ?? null);
+      result.error(`${method}_failed`, nativeError.message || '系统提醒服务暂不可用。', details);
     }
   }
 }

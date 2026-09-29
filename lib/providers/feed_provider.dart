@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/feed_record.dart';
 import '../repositories/feed_repository.dart';
@@ -14,8 +15,8 @@ enum FeedState { normal, warning, alerting }
 
 /// Presentation state for the current feeding cycle and immutable history.
 class FeedProvider extends ChangeNotifier {
-  static const _reminderError = '提醒服务暂不可用，请检查系统权限';
   static const _acknowledgementError = '提醒已停止，但状态保存失败，请重试';
+  static const _audioPlayError = '提醒声音播放失败，请重试';
   static const _audioStopError = '声音停止失败，请重试';
   FeedProvider({
     required StorageService storage,
@@ -42,6 +43,7 @@ class FeedProvider extends ChangeNotifier {
   Future<void> _writeQueue = Future.value();
   Future<void> _effectQueue = Future.value();
   Future<void>? _stoppingAlert;
+  FeedRecord? _stoppingRecord;
   Timer? _timer;
   bool _disposed = false;
   bool _isInitialized = false;
@@ -51,12 +53,13 @@ class FeedProvider extends ChangeNotifier {
   bool _alertAcknowledged = false;
   bool _playbackRecoverySuppressed = false;
   bool _audioStopPending = false;
-  bool _notificationErrorPending = false;
   bool _wasQuiet = false;
   int _pendingWrites = 0;
   int _pendingReminderEffects = 0;
   int _settingsRevision = 0;
   String? _error;
+  String? _notificationError;
+  String? _audioError;
   DateTime? _lastFeedTime;
   DateTime? _acknowledgedFeedTime;
   Duration _timeRemaining = const Duration(
@@ -75,7 +78,11 @@ class FeedProvider extends ChangeNotifier {
   bool get isInitialized => _isInitialized;
   bool get isSaving => _pendingWrites > 0;
   bool get isAlertAcknowledged => _alertAcknowledged;
-  String? get error => _error;
+  String? get error =>
+      _error ??
+      (_audioError == _audioStopError
+          ? _audioError
+          : _notificationError ?? _audioError);
   DateTime? get lastFeedTime => _lastFeedTime;
   DateTime? get nextFeedTime =>
       _lastFeedTime?.add(Duration(minutes: _feedIntervalMinutes));
@@ -121,6 +128,19 @@ class FeedProvider extends ChangeNotifier {
       _acknowledgedFeedTime?.millisecondsSinceEpoch ==
           time.millisecondsSinceEpoch;
 
+  String _notificationFailure(Object error) => switch (error) {
+    PlatformException(code: 'notification_permission_denied') =>
+      '系统通知未开启，请前往设置开启',
+    PlatformException(code: 'reminder_permission_denied') =>
+      '后台提醒尚未启用，请更新支持该能力的应用版本',
+    PlatformException(code: 'reminder_limit_exceeded') => '后台提醒额度受限，暂时无法添加提醒',
+    _ => '系统通知暂时失败，请稍后重试',
+  };
+
+  void _logFailure(String operation, Object error, StackTrace stack) {
+    debugPrint('FeedProvider.$operation failed: $error\n$stack');
+  }
+
   Future<void> _initialize() async {
     final settingsRevision = _settingsRevision;
     try {
@@ -146,12 +166,14 @@ class FeedProvider extends ChangeNotifier {
       _alertAcknowledged = _wasAcknowledged(_lastFeedTime);
       _calculateCountdown();
       _isInitialized = true;
-      await _syncReminder(reschedule: true);
-      if (_disposed) return;
+      // Native notification callbacks can be slow. Local readiness and the
+      // countdown must not wait for reminder delivery services to respond.
+      unawaited(_syncReminder(reschedule: true).then<void>((_) {}));
       if (_startTimerEnabled) {
         _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
       }
-    } catch (error) {
+    } catch (error, stack) {
+      _logFailure('loadRecords', error, stack);
       _loadFailed = true;
       _error = '记录读取失败，原有数据已保留：$error';
     } finally {
@@ -196,6 +218,12 @@ class FeedProvider extends ChangeNotifier {
     _calculateCountdown();
     final leftAlert = wasAlerting && _state != FeedState.alerting;
     final quiet = _isQuietAt(_clock());
+    // A one-shot stream failure must be visible without replaying the sound.
+    if (!_mustStopAudio &&
+        _audioService.hasPlaybackError &&
+        _audioError == null) {
+      _audioError = _audioPlayError;
+    }
     if (leftAlert ||
         quiet != _wasQuiet ||
         (_audioStopPending && _pendingReminderEffects == 0 && _mustStopAudio) ||
@@ -245,13 +273,14 @@ class FeedProvider extends ChangeNotifier {
   /// Acknowledges this feeding cycle without creating a feeding record.
   Future<void> stopAlert() => _stoppingAlert ??= _stopAlert().whenComplete(() {
     _stoppingAlert = null;
+    _stoppingRecord = null;
   });
 
   Future<void> _stopAlert() async {
     await ready;
     if (_disposed) return;
     final acknowledgedFeed = _lastFeedTime;
-    final acknowledgedRecord = feedHistory.firstOrNull?.id;
+    final acknowledgedRecord = _stoppingRecord = feedHistory.firstOrNull;
     _alertAcknowledged = true;
     _playbackRecoverySuppressed = true;
     _hasTriggeredAlert = true;
@@ -262,10 +291,10 @@ class FeedProvider extends ChangeNotifier {
       // The temporary acknowledgement prevents an in-flight play from winning.
       // Only roll it back for the same cycle; a new record may have arrived.
       if (_lastFeedTime == acknowledgedFeed &&
-          feedHistory.firstOrNull?.id == acknowledgedRecord) {
+          feedHistory.firstOrNull?.id == acknowledgedRecord?.id) {
         _alertAcknowledged = false;
         _hasTriggeredAlert = true;
-        _error = _audioStopError;
+        _audioError = _audioStopError;
         _notify();
       }
       throw StateError(_audioStopError);
@@ -273,11 +302,12 @@ class FeedProvider extends ChangeNotifier {
     try {
       await _storage.setAcknowledgedFeedTime(acknowledgedFeed);
       _acknowledgedFeedTime = acknowledgedFeed;
-      if (_error == _acknowledgementError || _error == _audioStopError) {
+      if (_error == _acknowledgementError) {
         _error = null;
         _notify();
       }
-    } catch (error) {
+    } catch (error, stack) {
+      _logFailure('saveAcknowledgement', error, stack);
       _error = _acknowledgementError;
       _notify();
       rethrow;
@@ -309,22 +339,34 @@ class FeedProvider extends ChangeNotifier {
           if (_disposed) return;
           if (_loadFailed) throw StateError('记录尚未成功读取，无法覆盖原有数据');
           try {
+            final previousRecord = feedHistory.firstOrNull;
             await change();
             if (_disposed) return;
-            final latest = _repository.lastFeedTime;
-            if (latest != _lastFeedTime) {
+            final latestRecord = feedHistory.firstOrNull;
+            final latest = latestRecord?.time;
+            if (latest != _lastFeedTime ||
+                latestRecord?.id != previousRecord?.id) {
+              final stoppingThisCycle =
+                  latestRecord != null &&
+                  latestRecord.id == _stoppingRecord?.id &&
+                  latestRecord.time == _stoppingRecord?.time;
               _hasTriggeredAlert = false;
-              _playbackRecoverySuppressed = false;
-              // Undo/deletion may restore a cycle that was already silenced.
-              // Only a successfully persisted acknowledgement can be restored.
-              _alertAcknowledged = _wasAcknowledged(latest);
+              _playbackRecoverySuppressed = stoppingThisCycle;
+              // Undo may restore a silenced cycle or the exact record whose
+              // stop is still pending. Keep that intent until it succeeds or
+              // the stop's existing failure path rolls it back.
+              _alertAcknowledged =
+                  stoppingThisCycle || _wasAcknowledged(latest);
             }
             _lastFeedTime = latest;
             _error = null;
             _calculateCountdown();
             _notify();
-            await _syncReminder(reschedule: true);
-          } catch (error) {
+            // Persistence completes the save; reminder failures are reported
+            // separately by the existing serialized effect queue.
+            unawaited(_syncReminder(reschedule: true).then<void>((_) {}));
+          } catch (error, stack) {
+            _logFailure('saveRecords', error, stack);
             _error = '记录保存失败，请重试';
             rethrow;
           }
@@ -408,24 +450,45 @@ class FeedProvider extends ChangeNotifier {
     final operation = _effectQueue
         .then<bool>((_) async {
           if (_disposed) return false;
-          var effectFailed = false;
+          final notificationState = (
+            feedHistory.firstOrNull?.id,
+            _lastFeedTime,
+            _settingsRevision,
+            _foreground,
+            _alertAcknowledged,
+          );
           var notificationFailed = false;
+          var audioFailed = false;
+          var cancelled = false;
+          var published = false;
           var audioStopped = true;
           Future<bool> attempt(
+            String operation,
             Future<void> Function() effect, {
             bool notification = false,
+            bool stopAudio = false,
           }) async {
             try {
               await effect();
+              if (!_disposed &&
+                  !notification &&
+                  !audioFailed &&
+                  (stopAudio || !_audioStopPending) &&
+                  _audioError != null) {
+                _audioError = null;
+                _notify();
+              }
               return true;
-            } catch (_) {
-              effectFailed = true;
+            } catch (error, stack) {
+              _logFailure(operation, error, stack);
               if (notification) {
                 notificationFailed = true;
-                _notificationErrorPending = true;
+                _notificationError = _notificationFailure(error);
+              } else {
+                audioFailed = true;
+                _audioError = stopAudio ? _audioStopError : _audioPlayError;
               }
               if (!_disposed) {
-                _error = _reminderError;
                 _notify();
               }
               return false;
@@ -442,11 +505,19 @@ class FeedProvider extends ChangeNotifier {
               reschedule &&
               !(preserveDueReminder && due && !_alertAcknowledged && !quiet);
           if (replaceNative) {
-            await attempt(_notificationService.cancelAll, notification: true);
+            cancelled = await attempt(
+              'cancelNotifications',
+              _notificationService.cancelAll,
+              notification: true,
+            );
           }
           if (_disposed) return false;
           if (restartAudio || _mustStopAudio) {
-            audioStopped = await attempt(_audioService.stopReminder);
+            audioStopped = await attempt(
+              'stopReminderAudio',
+              _audioService.stopReminder,
+              stopAudio: true,
+            );
             if (restartAudio && audioStopped) _hasTriggeredAlert = false;
             // A committed record must stay successful even if stopping fails.
             // Retry on a later tick only while silence is still required and
@@ -463,7 +534,8 @@ class FeedProvider extends ChangeNotifier {
               next != null &&
               next.isAfter(_clock()) &&
               !_isQuietAt(next)) {
-            await attempt(
+            published = await attempt(
+              'scheduleNotification',
               () => _notificationService.scheduleFeedReminder(
                 next,
                 playSound: _soundEnabled && !_foreground,
@@ -474,7 +546,7 @@ class FeedProvider extends ChangeNotifier {
           if (_disposed) return false;
           if (_shouldRecoverPlayback) {
             _hasTriggeredAlert = false;
-            _error = _reminderError;
+            _audioError = _audioPlayError;
             _notify();
           }
           if (_state == FeedState.alerting &&
@@ -482,11 +554,16 @@ class FeedProvider extends ChangeNotifier {
               _foreground &&
               !_playbackRecoverySuppressed &&
               !_alertAcknowledged &&
-              !_hasTriggeredAlert) {
+              (!_hasTriggeredAlert ||
+                  cancelled ||
+                  (reschedule && _notificationError != null))) {
+            // Queued record/undo effects can cancel a notification restored by
+            // the preceding effect. Rebuild it without replaying one-shot audio.
+            final startedSound = !_hasTriggeredAlert && _soundEnabled;
             _hasTriggeredAlert = true;
-            final startedSound = _soundEnabled;
             if (startedSound) {
               final played = await attempt(
+                'playReminderAudio',
                 () => _audioService.playReminder(loop: _soundLoopEnabled),
               );
               // A transient audio failure must not consume this cycle's only
@@ -499,33 +576,85 @@ class FeedProvider extends ChangeNotifier {
                 _isQuietAt(_clock()) ||
                 (startedSound && !_soundEnabled) ||
                 _state != FeedState.alerting) {
-              final stopped = await attempt(_audioService.stopReminder);
+              final stopped = await attempt(
+                'stopReminderAudio',
+                _audioService.stopReminder,
+                stopAudio: true,
+              );
               _audioStopPending = !stopped;
-              return stopped && audioStopped;
+              audioStopped = stopped && audioStopped;
+            } else {
+              published = await attempt(
+                'showNotification',
+                () => _notificationService.showFeedReminder(playSound: false),
+                notification: true,
+              );
             }
-            await attempt(
-              () => _notificationService.showFeedReminder(playSound: false),
+          }
+          if (_disposed) return false;
+          if (!_foreground &&
+              _state == FeedState.alerting &&
+              !_isQuietAt(_clock()) &&
+              !_playbackRecoverySuppressed &&
+              !_alertAcknowledged &&
+              (cancelled || (reschedule && _notificationError != null))) {
+            final backgroundCycle = feedHistory.firstOrNull;
+            final settingsRevision = _settingsRevision;
+            published = await attempt(
+              'showNotification',
+              () => _notificationService.showFeedReminder(
+                playSound: !_hasTriggeredAlert && _soundEnabled,
+              ),
               notification: true,
             );
+            // A cancelled due reminder needs a native replacement even after
+            // backgrounding. Only the first successful alert may make sound;
+            // a late success must not consume a newer cycle's first alert.
+            // After resume, that sound also completes a one-shot cycle, while
+            // loop mode still needs the foreground playback armed by resume.
+            if (published &&
+                !_disposed &&
+                (!_foreground || !_soundLoopEnabled) &&
+                !_alertAcknowledged &&
+                !_playbackRecoverySuppressed &&
+                settingsRevision == _settingsRevision &&
+                backgroundCycle?.id == feedHistory.firstOrNull?.id &&
+                backgroundCycle?.time == _lastFeedTime) {
+              _hasTriggeredAlert = true;
+            }
           }
-          // An audio-only recovery says nothing about an earlier failed native
-          // cancellation or schedule. Clear that failure only after replacing
-          // the notification state successfully.
-          if (replaceNative && !notificationFailed) {
-            _notificationErrorPending = false;
-          }
-          if (!effectFailed &&
-              !_notificationErrorPending &&
-              !_shouldRecoverPlayback &&
-              _error == _reminderError) {
-            _error = null;
+          // Saving a record or recovering audio does not prove notification
+          // recovery. A successful replacement does; cancellation alone does
+          // only when this cycle no longer needs a native reminder.
+          final currentNext = nextFeedTime;
+          final noNotificationNeeded =
+              currentNext == null ||
+              _alertAcknowledged ||
+              _isQuietAt(
+                currentNext.isAfter(_clock()) ? currentNext : _clock(),
+              );
+          // A late success must not clear the error while a newer reminder
+          // configuration is still waiting behind it in the native queue.
+          final currentNotificationState = (
+            feedHistory.firstOrNull?.id,
+            _lastFeedTime,
+            _settingsRevision,
+            _foreground,
+            _alertAcknowledged,
+          );
+          if (!notificationFailed &&
+              notificationState == currentNotificationState &&
+              (published || (cancelled && noNotificationNeeded)) &&
+              _notificationError != null) {
+            _notificationError = null;
             _notify();
           }
           return audioStopped;
         })
         .catchError((Object error, StackTrace stack) {
+          _logFailure('synchronizeReminders', error, stack);
           if (_disposed) return false;
-          _error = _reminderError;
+          _notificationError = '提醒服务暂时失败，请稍后重试';
           _notify();
           return false;
         })
@@ -544,7 +673,11 @@ class FeedProvider extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _timer?.cancel();
-    unawaited(_audioService.stopReminder().catchError((Object _) {}));
+    unawaited(
+      _audioService.stopReminder().catchError((Object error, StackTrace stack) {
+        _logFailure('stopReminderAudioOnDispose', error, stack);
+      }),
+    );
     super.dispose();
   }
 }

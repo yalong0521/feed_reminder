@@ -14,6 +14,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _PermissionNotifications extends NotificationService {
+  _PermissionNotifications({this.harmony = true});
+
+  final bool harmony;
   final permission = Completer<void>();
   final settings = Completer<void>();
   int permissionRequests = 0;
@@ -23,7 +26,7 @@ class _PermissionNotifications extends NotificationService {
   DateTime? scheduled;
 
   @override
-  bool get isHarmonyOS => true;
+  bool get isHarmonyOS => harmony;
 
   @override
   bool get isSupported => true;
@@ -77,24 +80,35 @@ void main() {
       startup: true,
       resume: false,
       confirmation: false,
+      harmony: true,
+    ),
+    (
+      name: 'non-Harmony startup permission',
+      startup: true,
+      resume: false,
+      confirmation: false,
+      harmony: false,
     ),
     (
       name: 'settings result',
       startup: false,
       resume: false,
       confirmation: false,
+      harmony: true,
     ),
     (
       name: 'resuming from settings',
       startup: false,
       resume: true,
       confirmation: false,
+      harmony: true,
     ),
     (
       name: 'legacy settings confirmation',
       startup: false,
       resume: false,
       confirmation: true,
+      harmony: true,
     ),
   ]) {
     testWidgets(
@@ -111,7 +125,9 @@ void main() {
           StorageKeys.nightModeEnabled: false,
           StorageKeys.burnInProtectionEnabled: false,
         });
-        final notifications = _PermissionNotifications();
+        final notifications = _PermissionNotifications(
+          harmony: scenario.harmony,
+        );
         if (scenario.confirmation) {
           notifications.settingsResult =
               NotificationSettingsResult.needsConfirmation;
@@ -128,6 +144,7 @@ void main() {
         addTearDown(feed.dispose);
         addTearDown(audio.dispose);
         await feed.ready;
+        await tester.pump();
         expect(feed.feedHistory, hasLength(1));
         expect(feed.error, isNotNull);
         expect(notifications.scheduled, isNull);

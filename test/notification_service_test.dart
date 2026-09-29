@@ -13,12 +13,16 @@ void main() {
   bool exact = false;
   bool permissionRevoked = false;
   bool initializationFails = false;
+  bool? notificationsEnabled = true;
+  bool provisional = false;
   setUp(() {
     calls = [];
     settingsCalls = [];
     exact = false;
     permissionRevoked = false;
     initializationFails = false;
+    notificationsEnabled = true;
+    provisional = false;
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     AndroidFlutterLocalNotificationsPlugin.registerWith();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -35,6 +39,14 @@ void main() {
           return switch (call.method) {
             'initialize' => true,
             'canScheduleExactNotifications' => exact,
+            'areNotificationsEnabled' => notificationsEnabled,
+            'checkPermissions' =>
+              notificationsEnabled == null
+                  ? null
+                  : {
+                      'isEnabled': notificationsEnabled,
+                      'isProvisionalEnabled': provisional,
+                    },
             _ => null,
           };
         });
@@ -70,6 +82,95 @@ void main() {
         expect(calls, isEmpty);
       },
     );
+
+    test(
+      '${platform.name} distinguishes denied, unknown, and restored access',
+      () async {
+        debugDefaultTargetPlatformOverride = platform;
+        switch (platform) {
+          case TargetPlatform.android:
+            AndroidFlutterLocalNotificationsPlugin.registerWith();
+          case TargetPlatform.iOS:
+            IOSFlutterLocalNotificationsPlugin.registerWith();
+          case TargetPlatform.macOS:
+            MacOSFlutterLocalNotificationsPlugin.registerWith();
+          default:
+            break;
+        }
+        final service = NotificationService();
+        final deadline = DateTime.now().add(const Duration(hours: 1));
+        notificationsEnabled = false;
+        for (final operation in <Future<void> Function()>[
+          () => service.showFeedReminder(),
+          () => service.scheduleFeedReminder(deadline),
+        ]) {
+          await expectLater(
+            operation(),
+            throwsA(
+              isA<PlatformException>().having(
+                (error) => error.code,
+                'code',
+                'notification_permission_denied',
+              ),
+            ),
+          );
+        }
+        expect(
+          calls.where(
+            (call) => call.method == 'show' || call.method == 'zonedSchedule',
+          ),
+          isEmpty,
+        );
+        await service.cancelAll();
+        expect(calls.last.method, 'cancelAll');
+
+        notificationsEnabled = null;
+        await expectLater(
+          service.scheduleFeedReminder(deadline),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              'notification_status_unavailable',
+            ),
+          ),
+        );
+        notificationsEnabled = true;
+        await service.scheduleFeedReminder(deadline);
+        await service.showFeedReminder();
+        expect(
+          calls.where((call) => call.method == 'zonedSchedule'),
+          hasLength(1),
+        );
+        expect(calls.where((call) => call.method == 'show'), hasLength(1));
+        expect(
+          calls.where(
+            (call) =>
+                call.method == 'requestPermissions' ||
+                call.method == 'requestNotificationsPermission',
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    if (platform != TargetPlatform.android) {
+      test(
+        '${platform.name} accepts provisional notification authorization',
+        () async {
+          debugDefaultTargetPlatformOverride = platform;
+          if (platform == TargetPlatform.iOS) {
+            IOSFlutterLocalNotificationsPlugin.registerWith();
+          } else {
+            MacOSFlutterLocalNotificationsPlugin.registerWith();
+          }
+          notificationsEnabled = false;
+          provisional = true;
+          await NotificationService().showFeedReminder(playSound: false);
+          expect(calls.where((call) => call.method == 'show'), hasLength(1));
+        },
+      );
+    }
   }
 
   test('unsupported platforms do not open notification settings', () async {

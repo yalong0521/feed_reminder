@@ -112,6 +112,52 @@ class NotificationService {
         ?.requestExactAlarmsPermission();
   }
 
+  Future<void> _requirePermission() async {
+    bool? enabled;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        enabled = await _notifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.areNotificationsEnabled();
+      case TargetPlatform.iOS:
+        final options = await _notifications
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.checkPermissions();
+        if (options != null) {
+          enabled = options.isEnabled || options.isProvisionalEnabled;
+        }
+      case TargetPlatform.macOS:
+        final options = await _notifications
+            .resolvePlatformSpecificImplementation<
+              MacOSFlutterLocalNotificationsPlugin
+            >()
+            ?.checkPermissions();
+        if (options != null) {
+          enabled = options.isEnabled || options.isProvisionalEnabled;
+        }
+      default:
+        return;
+    }
+    // Check authorization without opening another prompt. A missing response
+    // is a service failure, not evidence that the user denied permission.
+    if (enabled == null) {
+      throw PlatformException(
+        code: 'notification_status_unavailable',
+        message: 'Unable to read notification authorization status.',
+      );
+    }
+    if (!enabled) {
+      throw PlatformException(
+        code: 'notification_permission_denied',
+        message: 'System notifications are not enabled.',
+      );
+    }
+  }
+
   NotificationDetails _details(bool playSound) => NotificationDetails(
     android: AndroidNotificationDetails(
       playSound ? 'feeding_reminders_sound_v2' : 'feeding_reminders_silent_v2',
@@ -150,6 +196,7 @@ class NotificationService {
       });
       return;
     }
+    await _requirePermission();
     await _notifications.show(0, _title, _body, _details(playSound));
   }
 
@@ -171,6 +218,7 @@ class NotificationService {
       });
       return;
     }
+    await _requirePermission();
     final android = _notifications
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin

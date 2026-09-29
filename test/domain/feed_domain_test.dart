@@ -9,6 +9,9 @@ import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/utils/time_utils.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -134,6 +137,64 @@ class FailingCancellation extends FakeNotifications {
   }
 }
 
+class DeferredCancellation extends FakeNotifications {
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> cancelAll() async {
+    if (!entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    await super.cancelAll();
+  }
+}
+
+class ControlledNotifications extends FakeNotifications {
+  Object? scheduleError;
+  Object? showError;
+  Completer<void>? cancellationGate;
+  Completer<void>? scheduleGate;
+  Completer<void>? showGate;
+  bool notificationVisible = false;
+  final showSounds = <bool>[];
+  int showAttempts = 0;
+
+  @override
+  Future<void> cancelAll() async {
+    final gate = cancellationGate;
+    cancellationGate = null;
+    await gate?.future;
+    await super.cancelAll();
+    notificationVisible = false;
+  }
+
+  @override
+  Future<void> scheduleFeedReminder(
+    DateTime when, {
+    bool playSound = true,
+  }) async {
+    await scheduleGate?.future;
+    if (scheduleError case final error?) {
+      Error.throwWithStackTrace(error, StackTrace.fromString('native-stack'));
+    }
+    await super.scheduleFeedReminder(when, playSound: playSound);
+  }
+
+  @override
+  Future<void> showFeedReminder({bool playSound = true}) async {
+    showAttempts++;
+    final gate = showGate;
+    showGate = null;
+    await gate?.future;
+    if (showError case final error?) throw error;
+    await super.showFeedReminder(playSound: playSound);
+    notificationVisible = true;
+    showSounds.add(playSound);
+  }
+}
+
 class FailingPlayback extends FakeAudio {
   bool fail = true;
 
@@ -188,6 +249,501 @@ void main() {
     audio = FakeAudio();
     notifications = FakeNotifications();
   });
+
+  for (final failure in [
+    ('notification_permission_denied', '系统通知未开启，请前往设置开启'),
+    ('reminder_permission_denied', '后台提醒尚未启用，请更新支持该能力的应用版本'),
+    ('reminder_limit_exceeded', '后台提醒额度受限，暂时无法添加提醒'),
+    ('1700002', '系统通知暂时失败，请稍后重试'),
+    ('notification_status_unavailable', '系统通知暂时失败，请稍后重试'),
+    ('unknown_native_failure', '系统通知暂时失败，请稍后重试'),
+  ]) {
+    testWidgets('notification failure ${failure.$1} retains its diagnosis', (
+      tester,
+    ) async {
+      storage = StorageService();
+      notifications = ControlledNotifications()
+        ..scheduleError = PlatformException(
+          code: failure.$1,
+          message: 'original native message',
+          details: {'nativeCode': 42},
+        );
+      final output = <String>[];
+      final originalPrint = debugPrint;
+      debugPrint = (message, {wrapWidth}) => output.add(message ?? '');
+      final provider = createProvider();
+      try {
+        await provider.ready;
+        await provider.recordFeed();
+        await tester.pump();
+        expect(provider.isSaving, isFalse);
+        expect(provider.error, failure.$2);
+        final diagnostics = output.join('\n');
+        expect(diagnostics, contains('FeedProvider.scheduleNotification'));
+        expect(diagnostics, contains(failure.$1));
+        expect(diagnostics, contains('original native message'));
+        expect(diagnostics, contains('nativeCode: 42'));
+        expect(diagnostics, contains('native-stack'));
+      } finally {
+        provider.dispose();
+        await tester.pump();
+        debugPrint = originalPrint;
+      }
+    });
+  }
+
+  testWidgets(
+    'saving preserves notification failure until rescheduling succeeds',
+    (tester) async {
+      storage = StorageService();
+      final controlled = ControlledNotifications()
+        ..scheduleError = PlatformException(
+          code: 'notification_permission_denied',
+        );
+      notifications = controlled;
+      final provider = createProvider();
+      final scheduleGate = Completer<void>();
+      try {
+        await provider.ready;
+        await provider.recordFeed();
+        await tester.pump();
+        expect(provider.error, '系统通知未开启，请前往设置开启');
+        controlled.scheduleError = null;
+        controlled.scheduleGate = scheduleGate;
+        now = now.add(const Duration(minutes: 1));
+        await provider.recordFeed();
+        await tester.pump();
+        expect(provider.feedHistory, hasLength(2));
+        expect(provider.isSaving, isFalse);
+        expect(provider.error, '系统通知未开启，请前往设置开启');
+        scheduleGate.complete();
+        await tester.pump();
+        expect(controlled.scheduled, provider.nextFeedTime);
+        expect(provider.error, isNull);
+      } finally {
+        provider.dispose();
+        if (!scheduleGate.isCompleted) scheduleGate.complete();
+        await tester.pump();
+      }
+    },
+  );
+
+  testWidgets('valid notification replacements retire obsolete failures', (
+    tester,
+  ) async {
+    storage = StorageService();
+    final controlled = ControlledNotifications()
+      ..showError = PlatformException(code: 'show_failed');
+    notifications = controlled;
+    final provider = createProvider();
+    addTearDown(provider.dispose);
+    await provider.ready;
+    await provider.addFeedRecordWithTime(
+      now.subtract(const Duration(hours: 4)),
+    );
+    await tester.pump();
+    expect(provider.error, '系统通知暂时失败，请稍后重试');
+
+    // A future reminder replaces the failed immediate notification.
+    await provider.recordFeed();
+    await tester.pump();
+    expect(provider.error, isNull);
+    controlled.scheduleError = PlatformException(code: 'schedule_failed');
+    await provider.recordFeed();
+    await tester.pump();
+    expect(provider.error, '系统通知暂时失败，请稍后重试');
+
+    // Showing the now-due cycle supersedes its failed future schedule.
+    controlled.showError = null;
+    now = now.add(const Duration(hours: 3));
+    await provider.refresh();
+    expect(provider.error, isNull);
+    await provider.recordFeed();
+    await tester.pump();
+    expect(provider.error, '系统通知暂时失败，请稍后重试');
+
+    // Once the user stops this cycle, successful cancellation is sufficient.
+    await provider.stopAlert();
+    expect(provider.error, isNull);
+  });
+
+  testWidgets(
+    'an obsolete schedule success cannot hide a newer pending reminder',
+    (tester) async {
+      storage = StorageService();
+      final controlled = ControlledNotifications()
+        ..scheduleError = PlatformException(code: 'schedule_failed');
+      notifications = controlled;
+      final provider = createProvider();
+      final previousSchedule = Completer<void>();
+      final currentSchedule = Completer<void>();
+      try {
+        await provider.ready;
+        await provider.recordFeed();
+        await tester.pump();
+        expect(provider.error, '系统通知暂时失败，请稍后重试');
+        controlled.scheduleError = null;
+        controlled.scheduleGate = previousSchedule;
+        final refreshing = provider.refresh();
+        await tester.pump();
+        now = now.add(const Duration(minutes: 1));
+        await provider.recordFeed();
+        controlled.scheduleGate = currentSchedule;
+        previousSchedule.complete();
+        await tester.pump();
+        await refreshing;
+        expect(provider.error, '系统通知暂时失败，请稍后重试');
+        expect(controlled.scheduled, isNot(provider.nextFeedTime));
+
+        currentSchedule.complete();
+        await tester.pump();
+        expect(controlled.scheduled, provider.nextFeedTime);
+        expect(provider.error, isNull);
+      } finally {
+        provider.dispose();
+        if (!previousSchedule.isCompleted) previousSchedule.complete();
+        if (!currentSchedule.isCompleted) currentSchedule.complete();
+        await tester.pump();
+      }
+    },
+  );
+
+  for (final sound in [false, true]) {
+    testWidgets(
+      'refresh retries overdue notifications with sound enabled: $sound',
+      (tester) async {
+        storage = StorageService();
+        final controlled = ControlledNotifications()
+          ..showError = PlatformException(
+            code: 'notification_permission_denied',
+          );
+        notifications = controlled;
+        final provider = createProvider();
+        addTearDown(provider.dispose);
+        await provider.ready;
+        provider.updateSettings(soundEnabled: sound, soundLoopEnabled: false);
+        await provider.addFeedRecordWithTime(
+          now.subtract(const Duration(hours: 4)),
+        );
+        await tester.pump();
+        expect(provider.error, '系统通知未开启，请前往设置开启');
+        expect(audio.plays, sound ? 1 : 0);
+        expect(controlled.showAttempts, 1);
+
+        controlled.showError = null;
+        await provider.refresh();
+        expect(controlled.showAttempts, 2);
+        expect(controlled.shown, 1);
+        expect(audio.plays, sound ? 1 : 0);
+        expect(provider.error, isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'pending iOS notification initialization does not block readiness or ticking',
+    (tester) async {
+      const channel = MethodChannel(
+        'dexterous.com/flutter/local_notifications',
+      );
+      final initialization = Completer<void>();
+      final calls = <String>[];
+      IOSFlutterLocalNotificationsPlugin.registerWith();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call.method);
+        if (call.method == 'initialize') {
+          await initialization.future;
+          return true;
+        }
+        return null;
+      });
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(time: now.subtract(const Duration(minutes: 10))).toJson(),
+        ]),
+      });
+      final provider = FeedProvider(
+        storage: StorageService(),
+        audioService: audio,
+        notificationService: NotificationService(),
+        clock: () => now,
+      );
+      var ready = false;
+      unawaited(provider.ready.then((_) => ready = true));
+      try {
+        await tester.pump();
+        expect(calls, contains('initialize'));
+        expect(initialization.isCompleted, isFalse);
+        expect(ready, isTrue);
+        expect(provider.isInitialized, isTrue);
+        final remaining = provider.timeRemaining;
+        now = now.add(const Duration(seconds: 1));
+        await tester.pump(const Duration(seconds: 1));
+        expect(provider.timeRemaining, remaining - const Duration(seconds: 1));
+      } finally {
+        provider.dispose();
+        initialization.complete();
+        await tester.pump();
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        );
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'undo during an in-flight acknowledgement keeps the original cycle silent',
+    (tester) async {
+      storage = StorageService();
+      final original = FeedRecord(time: now.subtract(const Duration(hours: 4)));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([original.toJson()]),
+      });
+      final delayed = DeferredCancellation();
+      notifications = delayed;
+      final provider = createProvider();
+      try {
+        await tester.pump();
+        await provider.ready;
+        expect(delayed.entered.isCompleted, isTrue);
+        final stopping = provider.stopAlert();
+        await tester.pump();
+        expect(provider.isAlertAcknowledged, isTrue);
+
+        await provider.recordFeed();
+        expect(provider.isAlertAcknowledged, isFalse);
+        await provider.deleteFeedRecord(0);
+        expect(provider.feedHistory.single.id, original.id);
+        expect(provider.isAlertAcknowledged, isTrue);
+
+        delayed.release.complete();
+        await tester.pump();
+        await stopping;
+        expect(audio.playing, isFalse);
+        expect(audio.plays, 0);
+        expect(notifications.shown, 0);
+        expect(provider.isAlertAcknowledged, isTrue);
+        expect(await storage.getAcknowledgedFeedTime(), original.time);
+      } finally {
+        provider.dispose();
+        if (!delayed.release.isCompleted) delayed.release.complete();
+        await tester.pump();
+      }
+    },
+  );
+
+  for (final background in [false, true]) {
+    testWidgets(
+      'undo during pending cancellation restores the due notification in ${background ? 'background' : 'foreground'}',
+      (tester) async {
+        storage = StorageService();
+        final original = FeedRecord(
+          time: now.subtract(const Duration(hours: 4)),
+        );
+        SharedPreferences.setMockInitialValues({
+          StorageKeys.feedHistory: jsonEncode([original.toJson()]),
+          StorageKeys.soundLoopEnabled: false,
+        });
+        final controlled = ControlledNotifications();
+        notifications = controlled;
+        final provider = createProvider();
+        final cancellation = Completer<void>();
+        try {
+          await provider.ready;
+          await tester.pump();
+          expect(controlled.notificationVisible, isTrue);
+          expect(audio.plays, 1);
+          audio.playing = false; // The original one-shot sound has completed.
+
+          controlled.cancellationGate = cancellation;
+          await provider.recordFeed();
+          await tester.pump();
+          expect(provider.isSaving, isFalse);
+          expect(provider.state, FeedState.normal);
+          await provider.deleteFeedRecord(0);
+          if (background) provider.setForeground(false);
+          expect(provider.feedHistory.single.id, original.id);
+          expect(provider.state, FeedState.alerting);
+          expect(provider.isAlertAcknowledged, isFalse);
+
+          cancellation.complete();
+          await tester.pump();
+          expect(controlled.notificationVisible, isTrue);
+          expect(controlled.scheduled, isNull);
+          expect(controlled.sound, isFalse);
+          expect(
+            controlled.showSounds.where((sound) => sound),
+            hasLength(background ? 1 : 0),
+          );
+          // Undo can start its restored cycle once. Rebuilding the notification
+          // in the next queued effect must not replay that one-shot sound.
+          expect(audio.plays, background ? 1 : 2);
+          expect(audio.playing, !background);
+          expect(provider.error, isNull);
+        } finally {
+          provider.dispose();
+          if (!cancellation.isCompleted) cancellation.complete();
+          await tester.pump();
+        }
+      },
+    );
+  }
+
+  testWidgets(
+    'a late background notification cannot consume a newer cycles first sound',
+    (tester) async {
+      storage = StorageService();
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(time: now.subtract(const Duration(hours: 4))).toJson(),
+        ]),
+        StorageKeys.soundLoopEnabled: false,
+      });
+      final showing = Completer<void>();
+      final controlled = ControlledNotifications()..showGate = showing;
+      notifications = controlled;
+      final provider = createProvider()..setForeground(false);
+      try {
+        await provider.ready;
+        await tester.pump();
+        expect(controlled.showAttempts, 1);
+        expect(controlled.notificationVisible, isFalse);
+
+        final latest = now.subtract(const Duration(hours: 3, minutes: 30));
+        await provider.addFeedRecordWithTime(latest);
+        expect(provider.lastFeedTime, latest);
+        showing.complete();
+        await tester.pump();
+        expect(controlled.notificationVisible, isTrue);
+        expect(controlled.showSounds, [true, true]);
+        expect(audio.plays, 0);
+
+        provider.setForeground(true);
+        await tester.pump();
+        // This new cycle already made its one-shot sound in the background.
+        expect(audio.plays, 0);
+        expect(provider.error, isNull);
+      } finally {
+        provider.dispose();
+        if (!showing.isCompleted) showing.complete();
+        await tester.pump();
+      }
+    },
+  );
+
+  for (final loop in [false, true]) {
+    testWidgets(
+      'foreground resume during background delivery preserves loop: $loop',
+      (tester) async {
+        storage = StorageService();
+        SharedPreferences.setMockInitialValues({
+          StorageKeys.feedHistory: jsonEncode([
+            FeedRecord(time: now.subtract(const Duration(hours: 4))).toJson(),
+          ]),
+          StorageKeys.soundLoopEnabled: loop,
+        });
+        final showing = Completer<void>();
+        final controlled = ControlledNotifications()..showGate = showing;
+        notifications = controlled;
+        final provider = createProvider()..setForeground(false);
+        try {
+          await provider.ready;
+          await tester.pump();
+          expect(controlled.showAttempts, 1);
+          expect(controlled.notificationVisible, isFalse);
+
+          provider.setForeground(true);
+          showing.complete();
+          await tester.pump();
+          expect(controlled.notificationVisible, isTrue);
+          expect(controlled.showSounds, loop ? [true, false] : [true]);
+          // The native one-shot already sounded. Foreground playback is needed
+          // only when the user requested a continuing loop.
+          expect(audio.plays, loop ? 1 : 0);
+          expect(audio.playing, loop);
+          expect(provider.error, isNull);
+        } finally {
+          provider.dispose();
+          if (!showing.isCompleted) showing.complete();
+          await tester.pump();
+        }
+      },
+    );
+  }
+
+  testWidgets('failed background delivery retains its first sound for retry', (
+    tester,
+  ) async {
+    storage = StorageService();
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.feedHistory: jsonEncode([
+        FeedRecord(time: now.subtract(const Duration(hours: 4))).toJson(),
+      ]),
+      StorageKeys.soundLoopEnabled: false,
+    });
+    final controlled = ControlledNotifications()
+      ..showError = PlatformException(code: 'show_failed');
+    notifications = controlled;
+    final provider = createProvider()..setForeground(false);
+    try {
+      await provider.ready;
+      await tester.pump();
+      expect(controlled.notificationVisible, isFalse);
+      expect(provider.error, '系统通知暂时失败，请稍后重试');
+
+      controlled.showError = null;
+      await provider.refresh();
+      expect(controlled.notificationVisible, isTrue);
+      expect(controlled.showSounds, [true]);
+      expect(audio.plays, 0);
+      expect(provider.error, isNull);
+    } finally {
+      provider.dispose();
+      await tester.pump();
+    }
+  });
+
+  testWidgets(
+    'a pending stop does not acknowledge a different record at the same time',
+    (tester) async {
+      storage = StorageService();
+      final time = now.subtract(const Duration(hours: 4));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(id: 'stopping-record', time: time).toJson(),
+          FeedRecord(id: 'other-record', time: time).toJson(),
+        ]),
+      });
+      final delayed = DeferredCancellation();
+      notifications = delayed;
+      final provider = createProvider();
+      try {
+        await tester.pump();
+        await provider.ready;
+        final targetId = provider.feedHistory.first.id;
+        final stopping = provider.stopAlert();
+        await tester.pump();
+        await provider.deleteFeedRecord(0);
+        expect(provider.lastFeedTime, time);
+        expect(provider.feedHistory.single.id, isNot(targetId));
+        expect(provider.isAlertAcknowledged, isFalse);
+
+        delayed.release.complete();
+        await tester.pump();
+        await stopping;
+        expect(provider.isAlertAcknowledged, isFalse);
+        expect(audio.playing, isTrue);
+      } finally {
+        provider.dispose();
+        if (!delayed.release.isCompleted) delayed.release.complete();
+        await tester.pump();
+      }
+    },
+  );
 
   testWidgets(
     'a timer tick handles clock rollback without an explicit refresh',
@@ -418,15 +974,17 @@ void main() {
     },
   );
 
-  test(
+  testWidgets(
     'acknowledgement stops repeated alerts until a new feeding cycle',
-    () async {
+    (tester) async {
+      storage = StorageService();
       final provider = createProvider();
       addTearDown(provider.dispose);
       await provider.ready;
       await provider.addFeedRecordWithTime(
         now.subtract(const Duration(hours: 4)),
       );
+      await tester.pump();
       expect(audio.plays, 1);
       await provider.stopAlert();
       await provider.refresh();
@@ -481,31 +1039,35 @@ void main() {
     },
   );
 
-  test(
-    'notification failure cannot prevent stopping a looping sound',
-    () async {
-      final failing = FailingCancellation();
-      notifications = failing;
-      final provider = createProvider();
-      addTearDown(provider.dispose);
-      await provider.ready;
-      await provider.addFeedRecordWithTime(
-        now.subtract(const Duration(hours: 4)),
-      );
-      expect(audio.playing, isTrue);
-      failing.fail = true;
-      await provider.stopAlert();
-      expect(audio.playing, isFalse);
-      expect(provider.isAlertAcknowledged, isTrue);
-      expect(provider.error, contains('提醒服务'));
-      expect(await storage.getAcknowledgedFeedTime(), provider.lastFeedTime);
-      failing.fail = false;
-      await provider.refresh();
-      expect(provider.error, isNull);
-    },
-  );
+  testWidgets('notification failure cannot prevent stopping a looping sound', (
+    tester,
+  ) async {
+    storage = StorageService();
+    final failing = FailingCancellation();
+    notifications = failing;
+    final provider = createProvider();
+    addTearDown(provider.dispose);
+    await provider.ready;
+    await provider.addFeedRecordWithTime(
+      now.subtract(const Duration(hours: 4)),
+    );
+    await tester.pump();
+    expect(audio.playing, isTrue);
+    failing.fail = true;
+    await provider.stopAlert();
+    expect(audio.playing, isFalse);
+    expect(provider.isAlertAcknowledged, isTrue);
+    expect(provider.error, '系统通知暂时失败，请稍后重试');
+    expect(await storage.getAcknowledgedFeedTime(), provider.lastFeedTime);
+    failing.fail = false;
+    await provider.refresh();
+    expect(provider.error, isNull);
+  });
 
-  test('failed audio still shows a visual reminder and can retry', () async {
+  testWidgets('failed audio still shows a visual reminder and can retry', (
+    tester,
+  ) async {
+    storage = StorageService();
     final failing = FailingPlayback();
     audio = failing;
     final provider = createProvider();
@@ -514,8 +1076,9 @@ void main() {
     await provider.addFeedRecordWithTime(
       now.subtract(const Duration(hours: 4)),
     );
+    await tester.pump();
     expect(notifications.shown, 1);
-    expect(provider.error, contains('提醒服务'));
+    expect(provider.error, '提醒声音播放失败，请重试');
     failing.fail = false;
     await provider.refresh();
     expect(audio.playing, isTrue);
@@ -540,9 +1103,10 @@ void main() {
     expect(await failing.getAcknowledgedFeedTime(), provider.lastFeedTime);
   });
 
-  test(
+  testWidgets(
     'failed audio stop does not acknowledge and an explicit retry succeeds',
-    () async {
+    (tester) async {
+      storage = StorageService();
       final failing = FailingStopAudio();
       audio = failing;
       final provider = createProvider();
@@ -551,6 +1115,7 @@ void main() {
       await provider.addFeedRecordWithTime(
         now.subtract(const Duration(hours: 4)),
       );
+      await tester.pump();
       expect(audio.playing, isTrue);
       failing.failStop = true;
       final stopping = provider.stopAlert();
@@ -624,7 +1189,10 @@ void main() {
     },
   );
 
-  test('sound disabled still allows a silent visual notification', () async {
+  testWidgets('sound disabled still allows a silent visual notification', (
+    tester,
+  ) async {
+    storage = StorageService();
     final provider = createProvider();
     addTearDown(provider.dispose);
     await provider.ready;
@@ -632,18 +1200,21 @@ void main() {
     await provider.addFeedRecordWithTime(
       now.subtract(const Duration(hours: 4)),
     );
+    await tester.pump();
     expect(audio.plays, 0);
     expect(notifications.shown, 1);
     expect(notifications.sound, isFalse);
   });
 
-  test(
+  testWidgets(
     'lifecycle refresh preserves an overdue native alarm until acknowledged',
-    () async {
+    (tester) async {
+      storage = StorageService();
       final provider = createProvider();
       addTearDown(provider.dispose);
       await provider.ready;
       await provider.recordFeed();
+      await tester.pump();
       final scheduled = notifications.scheduled;
       final cancellations = notifications.cancellations;
       // Simulate an inexact OS alarm that is still waiting after its deadline.
@@ -661,15 +1232,17 @@ void main() {
     },
   );
 
-  test(
+  testWidgets(
     'an unacknowledged looping reminder resumes audio after backgrounding',
-    () async {
+    (tester) async {
+      storage = StorageService();
       final provider = createProvider();
       addTearDown(provider.dispose);
       await provider.ready;
       await provider.addFeedRecordWithTime(
         now.subtract(const Duration(hours: 4)),
       );
+      await tester.pump();
       expect(audio.plays, 1);
       provider.setForeground(false);
       await provider.refresh();
@@ -687,23 +1260,26 @@ void main() {
     },
   );
 
-  test(
-    'completed one-shot audio does not replay on lifecycle resume',
-    () async {
-      final provider = createProvider();
-      addTearDown(provider.dispose);
-      await provider.ready;
-      provider.updateSettings(soundLoopEnabled: false);
-      await provider.addFeedRecordWithTime(
-        now.subtract(const Duration(hours: 4)),
-      );
-      provider.setForeground(false);
-      await provider.refresh();
-      provider.setForeground(true);
-      await provider.refresh();
-      expect(audio.plays, 1);
-    },
-  );
+  testWidgets('completed one-shot audio does not replay on lifecycle resume', (
+    tester,
+  ) async {
+    storage = StorageService();
+    final provider = createProvider();
+    addTearDown(provider.dispose);
+    await provider.ready;
+    provider.updateSettings(soundLoopEnabled: false);
+    await provider.addFeedRecordWithTime(
+      now.subtract(const Duration(hours: 4)),
+    );
+    await tester.pump();
+    expect(audio.plays, 1);
+    audio.playing = false;
+    provider.setForeground(false);
+    await provider.refresh();
+    provider.setForeground(true);
+    await provider.refresh();
+    expect(audio.plays, 1);
+  });
 
   test('acknowledgement wins over an in-flight audio start', () async {
     final delayedAudio = DeferredAudio();

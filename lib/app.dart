@@ -128,7 +128,7 @@ class _FeedReminderAppState extends State<FeedReminderApp>
     try {
       await _notifications.init();
       await _notifications.requestPermissions();
-      if (mounted && _notifications.isHarmonyOS) {
+      if (mounted && _notifications.isSupported) {
         // Restoring records can attempt scheduling before the permission
         // dialog finishes. Retry once the user has allowed notifications.
         await _feed.refresh();

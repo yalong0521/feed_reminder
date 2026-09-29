@@ -71,7 +71,7 @@ void main() {
   late FeedProvider feed;
   FeedProvider? activeFeed;
 
-  Future<void> start() async {
+  Future<void> start(WidgetTester tester) async {
     now = DateTime(2026, 9, 27, 12);
     SharedPreferences.setMockInitialValues({
       StorageKeys.feedIntervalMinutes: 60,
@@ -96,6 +96,8 @@ void main() {
     );
     activeFeed = feed;
     await feed.ready;
+    // Local readiness no longer waits for the serialized reminder effects.
+    await tester.pump();
     expect(feed.state, FeedState.alerting);
     expect(audio.playing, isTrue);
   }
@@ -118,14 +120,15 @@ void main() {
   recoveryTest(
     'a committed feeding retries failed audio stop without repeating native scheduling',
     (tester) async {
-      await start();
+      await start(tester);
       audio.failStop = true;
       await feed.recordFeed();
+      await tester.pump();
       expect(feed.state, FeedState.normal);
       expect(feed.isSaving, isFalse);
       expect(feed.feedHistory, hasLength(2));
       expect(await storage.getFeedHistory(), hasLength(2));
-      expect(feed.error, isNotNull);
+      expect(feed.error, '声音停止失败，请重试');
       expect(audio.playing, isTrue);
       final stops = audio.stops;
       final schedules = notifications.schedules;
@@ -151,9 +154,10 @@ void main() {
   recoveryTest('a slow recovery cannot accumulate timer retries', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     await feed.recordFeed();
+    await tester.pump();
     final failedStops = audio.stops;
     audio.failStop = false;
     final gate = audio.nextStopGate = Completer<void>();
@@ -176,9 +180,10 @@ void main() {
   recoveryTest('an obsolete failed stop cannot silence the next due cycle', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     await feed.recordFeed();
+    await tester.pump();
     final failedStops = audio.stops;
     audio.failStop = false;
     now = now.add(const Duration(hours: 1));
@@ -198,9 +203,10 @@ void main() {
   recoveryTest('a new due cycle can play after an in-flight recovery stops', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     await feed.recordFeed();
+    await tester.pump();
     audio.failStop = false;
     final gate = audio.nextStopGate = Completer<void>();
     now = now.add(const Duration(seconds: 1));
@@ -220,7 +226,7 @@ void main() {
   recoveryTest('queued loop changes replay after each successful stop', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     final gate = audio.nextStopGate = Completer<void>();
     feed.updateSettings(soundLoopEnabled: false);
     await tester.pump();
@@ -241,9 +247,10 @@ void main() {
   recoveryTest(
     'slow recovery does not queue overdue work before backgrounding',
     (tester) async {
-      await start();
+      await start(tester);
       audio.failStop = true;
       await feed.recordFeed();
+      await tester.pump();
       audio.failStop = false;
       final gate = audio.nextStopGate = Completer<void>();
       now = now.add(const Duration(seconds: 1));
@@ -267,7 +274,7 @@ void main() {
   recoveryTest('failed settings restart does not replay over existing sound', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     feed.updateSettings(soundLoopEnabled: false);
     await tester.pump();
@@ -289,18 +296,20 @@ void main() {
   recoveryTest('audio recovery preserves an unresolved notification failure', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     notifications.failCancellation = true;
     await feed.recordFeed();
+    await tester.pump();
     expect(feed.feedHistory, hasLength(2));
+    expect(feed.error, '声音停止失败，请重试');
     final cancellations = notifications.cancellations;
     audio.failStop = false;
     now = now.add(const Duration(seconds: 1));
     await tester.pump(const Duration(seconds: 1));
     expect(audio.playing, isFalse);
     expect(notifications.cancellations, cancellations);
-    expect(feed.error, isNotNull);
+    expect(feed.error, '系统通知暂时失败，请稍后重试');
 
     notifications.failCancellation = false;
     await feed.refresh();
@@ -311,7 +320,7 @@ void main() {
   recoveryTest('background recovery stops audio without foreground playback', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     feed.setForeground(false);
     await tester.pump();
@@ -332,7 +341,7 @@ void main() {
   recoveryTest('failed explicit acknowledgement still requires user retry', (
     tester,
   ) async {
-    await start();
+    await start(tester);
     audio.failStop = true;
     await expectLater(feed.stopAlert(), throwsStateError);
     expect(feed.isAlertAcknowledged, isFalse);
