@@ -1,6 +1,6 @@
 import { bundleManager, UIAbility, wantAgent } from '@kit.AbilityKit';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
 import {
   AbilityAware,
@@ -70,6 +70,10 @@ export default class FeedReminderNotifications implements FlutterPlugin, Ability
       void this.requestPermissions(result);
       return;
     }
+    if (call.method === 'openNotificationSettings') {
+      void this.openNotificationSettings(result);
+      return;
+    }
     if (call.method !== 'show' && call.method !== 'schedule' && call.method !== 'cancelAll') {
       result.notImplemented();
       return;
@@ -115,6 +119,27 @@ export default class FeedReminderNotifications implements FlutterPlugin, Ability
       this.reportError(result, 'requestPermissions', error as Error);
     } finally {
       this.requestingPermission = false;
+    }
+  }
+
+  private async openNotificationSettings(result: MethodResult): Promise<void> {
+    try {
+      const ability = this.ability;
+      if (ability === undefined) {
+        throw new NotificationBridgeError('ability_unavailable', '请返回应用后打开系统通知设置。');
+      }
+      if (deviceInfo.sdkApiVersion >= 26) {
+        // API 26 completes when the user closes the settings sheet.
+        await notificationManager.openNotificationSettingsWithResult(ability.context);
+        result.success(true);
+      } else {
+        // Older systems only confirm opening; Dart must wait for the user's
+        // return before synchronizing reminders with any permission change.
+        await notificationManager.openNotificationSettings(ability.context);
+        result.success(false);
+      }
+    } catch (error) {
+      this.reportError(result, 'openNotificationSettings', error as Error);
     }
   }
 

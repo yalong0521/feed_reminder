@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+enum NotificationSettingsResult { opened, needsConfirmation }
+
 /// One native reminder per feeding cycle. Unsupported preview platforms are safe.
 class NotificationService {
-  static const _harmonyChannel = MethodChannel('feed_reminder/notifications');
+  static const _platformChannel = MethodChannel('feed_reminder/notifications');
   static const _title = '到设定的喂奶时间了';
   static const _body = '留意宝宝的状态，准备好后记下这一餐。';
   final FlutterLocalNotificationsPlugin _notifications;
@@ -39,7 +41,7 @@ class NotificationService {
   Future<void> _initialize() async {
     if (!isSupported) return;
     if (isHarmonyOS) {
-      await _harmonyChannel.invokeMethod<void>('initialize');
+      await _platformChannel.invokeMethod<void>('initialize');
       return;
     }
     const darwin = DarwinInitializationSettings(
@@ -60,7 +62,7 @@ class NotificationService {
     if (!isSupported) return;
     await init();
     if (isHarmonyOS) {
-      await _harmonyChannel.invokeMethod<void>('requestPermissions');
+      await _platformChannel.invokeMethod<void>('requestPermissions');
       return;
     }
     switch (defaultTargetPlatform) {
@@ -85,6 +87,19 @@ class NotificationService {
       default:
         break;
     }
+  }
+
+  /// A previous authorization decision suppresses later permission prompts.
+  /// Settings actions must open the system controls instead of requesting again.
+  Future<NotificationSettingsResult> openNotificationSettings() async {
+    if (!isSupported) return NotificationSettingsResult.opened;
+    final completed = await _platformChannel.invokeMethod<bool>(
+      'openNotificationSettings',
+    );
+    // Older HarmonyOS sheets neither await closure nor guarantee app resume.
+    return completed == false
+        ? NotificationSettingsResult.needsConfirmation
+        : NotificationSettingsResult.opened;
   }
 
   Future<void> requestExactAlarmPermission() async {
@@ -128,7 +143,7 @@ class NotificationService {
     if (!isSupported) return;
     await init();
     if (isHarmonyOS) {
-      await _harmonyChannel.invokeMethod<void>('show', {
+      await _platformChannel.invokeMethod<void>('show', {
         'title': _title,
         'body': _body,
         'playSound': playSound,
@@ -148,7 +163,7 @@ class NotificationService {
     if (isHarmonyOS) {
       // Epoch milliseconds retain the exact instant across Dart/ArkTS; a UTC
       // date string without its offset would be reinterpreted as local time.
-      await _harmonyChannel.invokeMethod<void>('schedule', {
+      await _platformChannel.invokeMethod<void>('schedule', {
         'epochMilliseconds': when.millisecondsSinceEpoch,
         'title': _title,
         'body': _body,
@@ -189,7 +204,7 @@ class NotificationService {
     if (!isSupported) return;
     await init();
     if (isHarmonyOS) {
-      await _harmonyChannel.invokeMethod<void>('cancelAll');
+      await _platformChannel.invokeMethod<void>('cancelAll');
       return;
     }
     await _notifications.cancelAll();

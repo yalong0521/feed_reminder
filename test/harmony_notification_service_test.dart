@@ -15,10 +15,12 @@ void main() {
     () {
       late List<MethodCall> calls;
       var initializationFails = false;
+      bool? settingsResult;
 
       setUp(() {
         calls = [];
         initializationFails = false;
+        settingsResult = null;
         debugDefaultTargetPlatformOverride = harmony;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, (call) async {
@@ -27,7 +29,9 @@ void main() {
                 initializationFails = false;
                 throw PlatformException(code: 'temporarily_unavailable');
               }
-              return null;
+              return call.method == 'openNotificationSettings'
+                  ? settingsResult
+                  : null;
             });
       });
 
@@ -71,6 +75,39 @@ void main() {
           expect((scheduled.last.arguments as Map)['playSound'], isTrue);
         },
       );
+
+      test(
+        'settings opens without initialization or permission requests',
+        () async {
+          for (final result in [null, true, false]) {
+            settingsResult = result;
+            expect(
+              await NotificationService().openNotificationSettings(),
+              result == false
+                  ? NotificationSettingsResult.needsConfirmation
+                  : NotificationSettingsResult.opened,
+            );
+          }
+
+          expect(calls.map((call) => call.method), [
+            'openNotificationSettings',
+            'openNotificationSettings',
+            'openNotificationSettings',
+          ]);
+        },
+      );
+
+      test('notification settings errors reach the caller', () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              throw PlatformException(code: 'settings_unavailable');
+            });
+
+        await expectLater(
+          NotificationService().openNotificationSettings(),
+          throwsA(isA<PlatformException>()),
+        );
+      });
 
       test('a deadline in the past is not scheduled', () async {
         final service = NotificationService();

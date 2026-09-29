@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the complete 96dp logo within Android 12's 192dp circular safe area. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="33.333%"
+    android:insetTop="33.333%"
+    android:insetRight="33.333%"
+    android:insetBottom="33.333%">
+    <bitmap android:src="@drawable/launch_icon" android:gravity="fill" />
+</inset>

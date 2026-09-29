@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="app_background">#FAF6EE</color>
+    <color name="launch_brand_primary">#AD593C</color>
+    <color name="launch_brand_secondary">#706257</color>
 </resources>

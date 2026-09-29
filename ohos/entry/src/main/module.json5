@@ -17,8 +17,10 @@
         "description": "$string:EntryAbility_desc",
         "icon": "$media:icon",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:icon",
+        "startWindowIcon": "$media:launch_icon",
         "startWindowBackground": "$color:start_window_background",
+        // API 19+ uses the branded launch profile; older systems retain the icon and background above.
+        "startWindow": "$profile:start_window",
         "exported": true,
         "skills": [
           {

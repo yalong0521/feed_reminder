@@ -27,9 +27,11 @@ tool/ohos.sh devices
 tool/ohos.sh run -d <device-id>
 ```
 
-`tool/ohos.sh prepare` 仅生成工作副本，`tool/ohos.sh pub get` 单独解析依赖。
-需要签名时，先运行 `prepare`，用 DevEco 打开 `build/ohos_workspace/ohos` 并配置
-签名。将生成的 `build-profile.json5` 保存到原项目已忽略的
+`tool/ohos.sh pub get` 会同步工作副本、解析依赖并生成 Flutter/Hvigor 插件配置。
+`tool/ohos.sh prepare` 仅同步源码与配置，不补齐构建依赖；执行后不能保证 DevEco
+工程已就绪。需要用 DevEco 配置签名或直接运行时，先执行 `tool/ohos.sh pub get`，
+再打开 `build/ohos_workspace/ohos`。修改原项目后也按此步骤重新同步。
+在 DevEco 中完成签名配置后，将生成的 `build-profile.json5` 保存到原项目已忽略的
 `ohos/build-profile.local.json5`；之后每次运行会使用这个本机配置。也可以通过
 `OHOS_BUILD_PROFILE=/绝对路径/build-profile.json5` 指定本机配置。
 这些文件可能包含签名凭据，不应纳入版本控制；脚本不会寻找其他签名文件。
@@ -45,6 +47,17 @@ tool/ohos.sh run -d <device-id>
 配置完成后执行 `tool/ohos.sh run --release -d <device-id>` 可构建并安装。
 手机需保持解锁；系统锁屏会阻止启动应用。自动调试签名绑定 Profile 中的设备，
 即使使用 Release 编译模式也仍是调试签名，正式上架需另行配置发布签名。
+
+## 启动画面
+
+启动画面使用原生窗口，沿用应用图标及 `AppPalette` 的浅深背景色。
+API 19+ 通过 `start_window.json` 显示底部“奶点记”字标，旧版保留
+`startWindowIcon` / `startWindowBackground` 配置；API 17 的实际回退效果仍需真机验证。
+字标沿用 `assets/img/launch-branding*.svg` 的设计，base/dark media 使用鸿蒙专用导出：
+内禀尺寸 800 × 320、viewBox 200 × 80，副标题为 14。系统只缩小、不放大图片，
+直接复制 200 × 80 母版会使高密度手机上的两行字过小。
+图标尺寸与位置由系统控制，启动资源跟随系统外观，Flutter 加载后使用应用自身主题。
+没有额外开屏页面或固定停留时间；检查完整启动效果时，应先结束应用进程再重新打开。
 
 ## 系统提醒能力
 
@@ -69,8 +82,10 @@ DevEco 26 也可在「项目结构 → 签名配置 → 开通开放能力」选
 - `ringDuration: 0` 表示跟随通知槽，并不是强制静音。本实现不启用独立代理
   闹钟铃声或静音音频变通；后台使用系统通知音，前台保留随包提醒音。
 - 夜间静音、停止本次提醒、补记和撤销继续沿用现有业务及持久化规则。
-- 读取记录不会主动弹权限框。启动授权结束或设置页重新授权后，重新同步当前
-  提醒；权限拒绝或代理能力不可用不阻止记录的读取、保存。
+- 读取记录不会主动弹权限框。首次启动请求授权，设置页的“系统通知权限”直接
+  打开系统通知设置。API 26 起在原生设置关闭后同步当前提醒；API 17–25 在
+  返回应用点击“完成”后同步，避免依赖半屏设置不一定触发的前台恢复事件。
+  权限拒绝或代理能力不可用不阻止记录的读取、保存。
 
 ## 构建隔离
 

@@ -15,6 +15,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _PermissionNotifications extends NotificationService {
   final permission = Completer<void>();
+  final settings = Completer<void>();
+  int permissionRequests = 0;
+  int settingsOpened = 0;
+  NotificationSettingsResult settingsResult = NotificationSettingsResult.opened;
   bool granted = false;
   DateTime? scheduled;
 
@@ -29,8 +33,16 @@ class _PermissionNotifications extends NotificationService {
 
   @override
   Future<void> requestPermissions() async {
+    permissionRequests++;
     await permission.future;
     granted = true;
+  }
+
+  @override
+  Future<NotificationSettingsResult> openNotificationSettings() async {
+    settingsOpened++;
+    await settings.future;
+    return settingsResult;
   }
 
   @override
@@ -59,9 +71,34 @@ class _QuietAudio extends AudioService {
 }
 
 void main() {
-  for (final startup in [true, false]) {
+  for (final scenario in [
+    (
+      name: 'startup permission',
+      startup: true,
+      resume: false,
+      confirmation: false,
+    ),
+    (
+      name: 'settings result',
+      startup: false,
+      resume: false,
+      confirmation: false,
+    ),
+    (
+      name: 'resuming from settings',
+      startup: false,
+      resume: true,
+      confirmation: false,
+    ),
+    (
+      name: 'legacy settings confirmation',
+      startup: false,
+      resume: false,
+      confirmation: true,
+    ),
+  ]) {
     testWidgets(
-      '${startup ? 'startup' : 'settings'} permission grant restores the pending reminder',
+      '${scenario.name} restores the pending reminder after permission is granted',
       (tester) async {
         final now = DateTime.now();
         SharedPreferences.setMockInitialValues({
@@ -75,6 +112,10 @@ void main() {
           StorageKeys.burnInProtectionEnabled: false,
         });
         final notifications = _PermissionNotifications();
+        if (scenario.confirmation) {
+          notifications.settingsResult =
+              NotificationSettingsResult.needsConfirmation;
+        }
         final storage = StorageService();
         final audio = _QuietAudio();
         final feed = FeedProvider(
@@ -97,11 +138,11 @@ void main() {
             feedProvider: feed,
             audioService: audio,
             notificationService: notifications,
-            enablePlatformEffects: startup,
+            enablePlatformEffects: scenario.startup,
           ),
         );
         await tester.pumpAndSettle();
-        if (!startup) {
+        if (!scenario.startup) {
           await tester.tap(find.byKey(const ValueKey('nav-settings')));
           await tester.pumpAndSettle();
           final permission = find.text('系统通知权限');
@@ -110,9 +151,38 @@ void main() {
           await tester.pumpAndSettle();
         }
         expect(notifications.scheduled, isNull);
-        // No lifecycle change is sent: the authorization result itself must
-        // recover the failed schedule even if no resumed event follows it.
-        notifications.permission.complete();
+        expect(notifications.permissionRequests, scenario.startup ? 1 : 0);
+        expect(notifications.settingsOpened, scenario.startup ? 0 : 1);
+        if (scenario.startup) {
+          // The startup prompt must recover scheduling without a resumed event.
+          notifications.permission.complete();
+        } else if (scenario.confirmation) {
+          // Older system sheets only report opening, so the user confirms return.
+          notifications.settings.complete();
+          await tester.pumpAndSettle();
+          expect(notifications.scheduled, isNull);
+          notifications.granted = true;
+          await tester.tap(
+            find.byKey(const ValueKey('notification-settings-complete')),
+          );
+        } else if (scenario.resume) {
+          // Opening a separate system page can finish before access is changed.
+          notifications.settings.complete();
+          await tester.pumpAndSettle();
+          expect(notifications.scheduled, isNull);
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          await tester.pumpAndSettle();
+          notifications.granted = true;
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        } else {
+          // A system sheet can close without an app lifecycle transition.
+          notifications.granted = true;
+          notifications.settings.complete();
+        }
         await tester.pumpAndSettle();
         expect(notifications.scheduled, feed.nextFeedTime);
         expect(feed.error, isNull);

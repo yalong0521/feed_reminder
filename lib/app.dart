@@ -43,6 +43,7 @@ class FeedReminderApp extends StatefulWidget {
 
 class _FeedReminderAppState extends State<FeedReminderApp>
     with WidgetsBindingObserver {
+  static const _systemUiChannel = MethodChannel('feed_reminder/system_ui');
   late final StorageService _storage;
   late final AudioService _audio;
   late final NotificationService _notifications;
@@ -52,6 +53,8 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   bool _foreground = true;
   bool _wakelock = false;
   bool _displayDimmed = false;
+  bool? _systemBarsHidden;
+  Future<void> _systemUiUpdates = Future<void>.value();
 
   @override
   void initState() {
@@ -76,22 +79,49 @@ class _FeedReminderAppState extends State<FeedReminderApp>
       _syncWakelock();
     });
     if (widget.enablePlatformEffects) {
-      unawaited(_initializeSystemUi());
+      _syncSystemUi();
       unawaited(_initializeNotifications());
     }
   }
 
-  Future<void> _initializeSystemUi() async {
-    if (kIsWeb ||
+  void _syncSystemUi({bool restore = false, bool force = false}) {
+    if (!widget.enablePlatformEffects ||
+        kIsWeb ||
         (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS &&
             !_notifications.isHarmonyOS)) {
       return;
     }
-    try {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    } catch (error) {
-      debugPrint('System bar configuration unavailable: $error');
-    }
+    final hidden = !restore && _foreground && _index == 0 && _displayDimmed;
+    if (!force && _systemBarsHidden == hidden) return;
+    _systemBarsHidden = hidden;
+    // Serialize native changes so a delayed hide cannot override wake/dispose.
+    _systemUiUpdates = _systemUiUpdates.then((_) async {
+      try {
+        if (!_notifications.isHarmonyOS &&
+            defaultTargetPlatform == TargetPlatform.android) {
+          if (!hidden) {
+            await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+          }
+          // Android 16 enforces edge-to-edge layout. Hide only the insets,
+          // without switching Flutter to a mode that changes that layout.
+          await _systemUiChannel.invokeMethod<void>(
+            'setSystemBarsHidden',
+            hidden,
+          );
+        } else {
+          // Flutter-OH's mode call lacks a success reply; the manual overlays
+          // path both controls the status bar and completes its Future.
+          await SystemChrome.setEnabledSystemUIMode(
+            SystemUiMode.manual,
+            overlays: hidden ? const [] : SystemUiOverlay.values,
+          );
+        }
+      } catch (error) {
+        if (_systemBarsHidden == hidden) _systemBarsHidden = null;
+        debugPrint('System bar configuration unavailable: $error');
+      }
+    });
   }
 
   Future<void> _initializeNotifications() async {
@@ -137,22 +167,32 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final foreground = state == AppLifecycleState.resumed;
     if (_foreground == foreground) return;
+    // Home reports leaving standby after it rebuilds as inactive. A brief
+    // focus change without a frame must keep its existing standby state.
     setState(() => _foreground = foreground);
     _feed.setForeground(foreground);
     _syncWakelock();
+    _syncSystemUi(force: foreground);
   }
 
   void _selectPage(int index) {
-    setState(() => _index = index);
+    setState(() {
+      _index = index;
+      if (index != 0) _displayDimmed = false;
+    });
     _syncWakelock();
+    _syncSystemUi();
   }
 
   void _onDisplayDimmedChanged(bool dimmed) {
     // Home may notify during its own update/build. Keep the shell update out
     // of that frame and preserve Home's element when navigation disappears.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _displayDimmed != dimmed) {
-        setState(() => _displayDimmed = dimmed);
+      if (!mounted) return;
+      final active = dimmed && _foreground && _index == 0;
+      if (_displayDimmed != active) {
+        setState(() => _displayDimmed = active);
+        _syncSystemUi();
       }
     });
   }
@@ -160,6 +200,7 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _syncSystemUi(restore: true);
     _settings.removeListener(_syncSettings);
     _feed.removeListener(_syncWakelock);
     if (widget.feedProvider == null) _feed.dispose();

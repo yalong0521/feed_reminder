@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -219,6 +220,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   bool seeded = false,
   List<FeedRecord>? seededRecords,
   bool burnInProtection = false,
+  bool enablePlatformEffects = false,
   Brightness brightness = Brightness.light,
   FakeViewPadding padding = FakeViewPadding.zero,
   StorageService? storageOverride,
@@ -277,7 +279,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
       notificationService: notifications,
       feedProvider: feed,
       settingsProvider: settings,
-      enablePlatformEffects: false,
+      enablePlatformEffects: enablePlatformEffects,
     ),
   );
   await tester.pumpAndSettle();
@@ -285,6 +287,242 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
 }
 
 void main() {
+  group('standby system bars', () {
+    const nativeChannel = MethodChannel('feed_reminder/system_ui');
+    const wakelockChannel =
+        'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';
+    late List<MethodCall> calls;
+    late List<bool> appliedHiddenStates;
+    Completer<void>? hideGate;
+
+    setUp(() {
+      calls = [];
+      appliedHiddenStates = [];
+      hideGate = null;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(nativeChannel, (call) async {
+        calls.add(call);
+        if (call.method == 'setSystemBarsHidden') {
+          final hidden = call.arguments as bool;
+          if (hidden) await hideGate?.future;
+          appliedHiddenStates.add(hidden);
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          calls.add(call);
+        } else if (call.method == 'SystemChrome.setEnabledSystemUIOverlays') {
+          calls.add(call);
+          final hidden = (call.arguments as List).isEmpty;
+          if (hidden) await hideGate?.future;
+          appliedHiddenStates.add(hidden);
+        }
+        return null;
+      });
+      messenger.setMockMessageHandler(wakelockChannel, (_) async {
+        return const StandardMessageCodec().encodeMessage([null]);
+      });
+    });
+
+    tearDown(() {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(nativeChannel, null);
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      messenger.setMockMessageHandler(wakelockChannel, null);
+    });
+
+    final mobilePlatforms = TargetPlatform.values
+        .where((platform) => ['android', 'iOS', 'ohos'].contains(platform.name))
+        .toSet();
+
+    testWidgets(
+      'idle hides bars through rotation and theme changes until touch wakes',
+      (tester) async {
+        final app = await _mount(
+          tester,
+          seeded: true,
+          burnInProtection: true,
+          enablePlatformEffects: true,
+        );
+        final standby = find.byKey(const ValueKey('standby-screen'));
+        final deadline = app.feed.nextFeedTime;
+        expect(appliedHiddenStates.last, isFalse);
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          expect(calls.first.method, 'SystemChrome.setEnabledSystemUIMode');
+          expect(calls.first.arguments, 'SystemUiMode.edgeToEdge');
+          expect(calls[1].method, 'setSystemBarsHidden');
+          expect(calls[1].arguments, isFalse);
+        } else {
+          expect(calls.first.method, 'SystemChrome.setEnabledSystemUIOverlays');
+          expect(calls.first.arguments, [
+            'SystemUiOverlay.top',
+            'SystemUiOverlay.bottom',
+          ]);
+        }
+        await tester.pump(const Duration(seconds: 30));
+        await tester.pumpAndSettle();
+        expect(standby, findsOneWidget);
+        expect(appliedHiddenStates.last, isTrue);
+
+        tester.view.physicalSize = const Size(844, 390);
+        await app.settings.setThemeMode(ThemeMode.dark);
+        await tester.pumpAndSettle();
+        expect(standby, findsOneWidget);
+        expect(appliedHiddenStates.last, isTrue);
+        await tester.tap(standby);
+        await tester.pumpAndSettle();
+        expect(standby, findsNothing);
+        expect(appliedHiddenStates.last, isFalse);
+        if (defaultTargetPlatform != TargetPlatform.android) {
+          expect(calls.last.arguments, [
+            'SystemUiOverlay.top',
+            'SystemUiOverlay.bottom',
+          ]);
+        }
+        expect(find.byKey(const ValueKey('app-navigation')), findsOneWidget);
+        expect(app.feed.nextFeedTime, deadline);
+        expect(app.feed.feedHistory, hasLength(2));
+        expect(
+          Theme.of(tester.element(find.byType(HomeScreen))).brightness,
+          Brightness.dark,
+        );
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          _expectTransparentSystemBars(
+            tester,
+            size: const Size(844, 390),
+            backgroundBrightness: Brightness.dark,
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+      variant: TargetPlatformVariant(mobilePlatforms),
+    );
+
+    for (final exit in ['alert', 'disabled', 'background', 'page']) {
+      testWidgets('$exit restores system bars from standby', (tester) async {
+        final app = await _mount(
+          tester,
+          seeded: true,
+          burnInProtection: true,
+          enablePlatformEffects: true,
+        );
+        await tester.pump(const Duration(seconds: 30));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+        expect(appliedHiddenStates.last, isTrue);
+
+        switch (exit) {
+          case 'alert':
+            await app.settings.setFeedInterval(1);
+          case 'disabled':
+            await app.settings.setBurnInProtectionEnabled(false);
+          case 'background':
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+          case 'page':
+            tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .onHistoryRequested!();
+        }
+        await tester.pumpAndSettle();
+        expect(appliedHiddenStates.last, isFalse);
+        expect(find.byKey(const ValueKey('standby-screen')), findsNothing);
+        expect(app.feed.feedHistory, hasLength(2));
+        if (exit == 'background') {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pumpAndSettle();
+          expect(appliedHiddenStates.last, isFalse);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+    }
+
+    testWidgets(
+      'a focus change without a frame keeps standby and system bars consistent',
+      (tester) async {
+        await _mount(
+          tester,
+          seeded: true,
+          burnInProtection: true,
+          enablePlatformEffects: true,
+        );
+        await tester.pump(const Duration(seconds: 30));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+        expect(appliedHiddenStates.last, isTrue);
+
+        // A focus loss may end before Flutter gets a frame to rebuild Home.
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+        expect(find.byKey(const ValueKey('app-navigation')), findsNothing);
+        expect(appliedHiddenStates.last, isTrue);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+
+    for (final dispose in [false, true]) {
+      testWidgets(
+        '${dispose ? 'disposal' : 'touch wake'} restores bars after a delayed hide completes',
+        (tester) async {
+          await _mount(
+            tester,
+            seeded: true,
+            burnInProtection: true,
+            enablePlatformEffects: true,
+          );
+          hideGate = Completer<void>();
+          await tester.pump(const Duration(seconds: 30));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+          expect(
+            calls.any(
+              (call) =>
+                  call.method == 'setSystemBarsHidden' &&
+                  call.arguments == true,
+            ),
+            isTrue,
+          );
+          expect(appliedHiddenStates.last, isFalse);
+
+          if (dispose) {
+            await tester.pumpWidget(const SizedBox.shrink());
+          } else {
+            await tester.tap(find.byKey(const ValueKey('standby-screen')));
+          }
+          await tester.pumpAndSettle();
+          hideGate!.complete();
+          await tester.pumpAndSettle();
+          expect(appliedHiddenStates, contains(true));
+          expect(appliedHiddenStates.last, isFalse);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.android),
+      );
+    }
+  });
+
   testWidgets('countdown scale follows time, interval changes and backfill', (
     tester,
   ) async {

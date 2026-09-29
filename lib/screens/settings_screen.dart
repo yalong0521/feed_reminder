@@ -12,6 +12,7 @@ import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 import '../utils/constants.dart';
 import '../widgets/app_controls.dart';
+import '../widgets/app_message_dialog.dart';
 import '../widgets/app_surface.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -37,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   Timer? _previewTimer;
   bool _previewing = false;
   bool _audioBusy = false;
+  bool _permissionBusy = false;
   bool _saving = false;
   bool _editing = false;
   int _previewGeneration = 0;
@@ -198,7 +200,43 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  Future<void> _requestPermission(Future<void> Function() action) async {
+  Future<void> _openNotificationSettings() async {
+    final result = await context
+        .read<NotificationService>()
+        .openNotificationSettings();
+    if (!mounted ||
+        !widget.isActive ||
+        result != NotificationSettingsResult.needsConfirmation) {
+      return;
+    }
+    // Older HarmonyOS returns while its native sheet is still open. Keep a
+    // completion action underneath it so permission changes can resync reminders.
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      createAppMessageDialogRoute<void>(
+        context,
+        builder: (dialogContext) => AppMessageDialog(
+          title: '系统通知设置',
+          icon: CupertinoIcons.bell,
+          content: const Text('设置通知后，返回此处点击“完成”，让当前提醒按新的权限设置生效。'),
+          actions: [
+            AppButton(
+              key: const ValueKey('notification-settings-complete'),
+              filled: true,
+              onPressed: () {
+                if (ModalRoute.of(dialogContext)?.isCurrent == true) {
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPermissionSettings(Future<void> Function() action) async {
+    setState(() => _permissionBusy = true);
     try {
       await action();
       if (mounted && context.read<NotificationService>().isHarmonyOS) {
@@ -206,6 +244,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       }
     } catch (_) {
       _showError('无法打开权限设置，请在系统设置中检查应用权限。');
+    } finally {
+      if (mounted) setState(() => _permissionBusy = false);
     }
   }
 
@@ -440,10 +480,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                         children: [
                           _PermissionRow(
                             label: '系统通知权限',
+                            subtitle: '前往系统通知设置',
                             icon: CupertinoIcons.bell,
-                            onPressed: () => _requestPermission(
-                              notifications.requestPermissions,
-                            ),
+                            onPressed: _permissionBusy
+                                ? null
+                                : () => _openPermissionSettings(
+                                    _openNotificationSettings,
+                                  ),
                           ),
                           if (defaultTargetPlatform ==
                               TargetPlatform.android) ...[
@@ -451,9 +494,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                             _PermissionRow(
                               label: '准时提醒权限',
                               icon: CupertinoIcons.alarm,
-                              onPressed: () => _requestPermission(
-                                notifications.requestExactAlarmPermission,
-                              ),
+                              onPressed: _permissionBusy
+                                  ? null
+                                  : () => _openPermissionSettings(
+                                      notifications.requestExactAlarmPermission,
+                                    ),
                             ),
                           ],
                         ],
@@ -969,12 +1014,14 @@ class _ActionLabel extends StatelessWidget {
 class _PermissionRow extends StatelessWidget {
   const _PermissionRow({
     required this.label,
+    this.subtitle = '前往系统授权',
     required this.icon,
     required this.onPressed,
   });
   final String label;
+  final String subtitle;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1002,7 +1049,7 @@ class _PermissionRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 5),
-                  Text('前往系统授权', style: _hintStyle(context)),
+                  Text(subtitle, style: _hintStyle(context)),
                 ],
               ),
             ),

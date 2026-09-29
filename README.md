@@ -26,16 +26,22 @@ Web 和 Windows 支持记录与前台计时，不提供系统定时通知。发�
 
 原生鸿蒙使用独立的 Flutter-OH 工具链，构建、签名和提醒能力说明见 [鸿蒙开发与验证](tool/ohos/README.md)。
 
-使用 Flutter 3.47.2（Dart 3.13.2）和 JDK 17。当前 Android Gradle 8.14 与 Java 25 不兼容。使用 FVM 时，可在项目根目录执行：
+使用 Flutter 3.47.4（Dart 3.13.3）和 JDK 17。当前 Android Gradle 8.14 与 Java 25 不兼容。使用 FVM 时，可在项目根目录执行：
 
 ```powershell
-fvm use 3.47.2
+fvm use 3.47.4
 fvm flutter config --jdk-dir="你的 JDK 17 安装目录"
 fvm flutter pub get
 fvm flutter run
 ```
 
 正式入口为 `lib/main.dart`。IDE 和命令行应使用同一套 Flutter SDK。`flutter config --jdk-dir` 是用户级设置，会影响本机其他 Flutter 项目。
+
+Apple 工程最低支持 iOS 15、macOS 12，与当前 Flutter SDK 要求一致。
+iOS / macOS 已接入 Flutter 的 Swift Package Manager；尚未支持它的通知插件
+继续通过 CocoaPods 集成。首次构建请使用 `fvm flutter build ios --simulator`
+或 `fvm flutter build macos`，生成插件配置并安装依赖后再从 Xcode 打开对应
+`Runner.xcworkspace`。生成的插件包位于 `ephemeral` 目录，无需提交。
 
 Windows 本机测试需要 Visual Studio 的 C++ 工具链：项目将 `win32` 构建钩子配置为本地编译。Android、iOS 和 Web 构建不执行这段 Windows 编译。
 
@@ -52,7 +58,21 @@ fvm flutter build apk --release
 
 `integration_test/storage_test.dart` 另外验证真实原生存储，使用独立键前缀，覆盖 240 条记录、设置重新读取和旧数据迁移。`integration_test/notification_delivery_test.dart` 仅允许 Android 模拟器运行，要求通知和精确闹钟权限均已授予，验证系统通知实际投递与取消；它会清理该测试应用的通知，不用于已有用户数据的设备。它不覆盖后台省电或重启恢复。
 
-APK 输出为 `build/app/outputs/flutter-apk/app-release.apk`。当前 release 构建使用 debug 签名；正式发布前需在 `android/app/build.gradle.kts` 配置自己的签名，并替换示例应用 ID `com.example.feed_reminder`。
+APK 输出为 `build/app/outputs/flutter-apk/app-release.apk`。当前 release 构建使用 debug 签名；正式发布前需在 `android/app/build.gradle.kts` 配置自己的签名。
+
+## 应用标识
+
+Android、iOS、macOS、鸿蒙和 Linux 的主应用标识统一为 `com.weiyalong.naidianji`，
+iOS / macOS 测试目标使用 `com.weiyalong.naidianji.RunnerTests`。
+正式签名和商店登记需要与各平台的这个标识匹配。
+
+Android 的 Kotlin 包和 namespace 同步使用该标识；Dart 包名 `feed_reminder`
+以及内部 MethodChannel 名称不属于安装标识，保持原有值。
+Windows 当前是普通 EXE 工程，尚未配置 MSIX 商店身份；Web 使用站点地址识别，
+不将移动端包名写入 Web manifest。
+
+从旧示例标识切换后，系统会视为新的应用，旧标识下的本地记录、设置和授权不会自动迁移。
+鸿蒙原本已使用此标识，不涉及这次标识迁移。
 
 ## 目录职责
 

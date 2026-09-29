@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -17,6 +17,7 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="记录每一餐，按自己的节奏安排喂奶提醒。">
   <meta name="theme-color" content="#AD593C">
@@ -32,16 +33,134 @@
 
   <title>奶点记</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --launch-background: #FAF6EE;
+      --launch-primary: #AD593C;
+      --launch-secondary: #706257;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --launch-background: #221E1B;
+        --launch-primary: #EDA987;
+        --launch-secondary: #C5B3A2;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--launch-background);
+    }
+
+    #launch-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: var(--launch-background);
+      color: var(--launch-secondary);
+      font-family: "Songti SC", "Noto Serif CJK SC", serif;
+      text-align: center;
+      display: grid;
+      /* Keep the logo centered until the brand needs more vertical space. */
+      grid-template-rows: minmax(0, 1fr) auto minmax(min-content, 1fr);
+    }
+
+    .launch-icon {
+      grid-row: 2;
+      justify-self: center;
+      width: 96px;
+      height: 96px;
+    }
+
+    .launch-brand {
+      grid-row: 3;
+      align-self: end;
+      margin: 16px 24px max(44px, env(safe-area-inset-bottom));
+    }
+
+    .launch-brand h1 {
+      margin: 0 0 10px;
+      color: var(--launch-primary);
+      font-size: 26px;
+      font-weight: 500;
+      letter-spacing: 2px;
+    }
+
+    .launch-brand p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .launch-recovery {
+      position: absolute;
+      top: calc(50% - 136px);
+      right: 24px;
+      left: 24px;
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .launch-recovery button {
+      min-height: 44px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      color: var(--launch-primary);
+      font: inherit;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <main id="launch-screen" aria-label="奶点记正在启动">
+    <img class="launch-icon" src="icons/Launch.png" width="96" height="96" alt="">
+    <div class="launch-brand">
+      <h1>奶点记</h1>
+      <p>记下每一餐，安心每一天</p>
+    </div>
+    <p id="launch-recovery" class="launch-recovery" role="status" hidden>
+      加载失败，请检查网络后重试。
+      <button id="launch-retry" type="button">重新加载</button>
+    </p>
+    <noscript>
+      <p class="launch-recovery">请启用浏览器的 JavaScript 后重新加载奶点记。</p>
+    </noscript>
+  </main>
+  <script>
+    (() => {
+      const launch = document.getElementById('launch-screen');
+      const recovery = document.getElementById('launch-recovery');
+      const showError = () => {
+        recovery.hidden = false;
+        launch.setAttribute('aria-label', '奶点记加载失败');
+      };
+      const onError = (event) => {
+        // The loader's entrypoint callback does not reject script download errors.
+        if (event instanceof ErrorEvent || event.target instanceof HTMLScriptElement) {
+          showError();
+        }
+      };
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+      document.getElementById('launch-retry').addEventListener('click', () => {
+        window.location.reload();
+      });
+      window.addEventListener('error', onError, true);
+      window.addEventListener('feed-reminder-startup-error', showError);
+      // runApp resolves before the first frame; keep the native HTML until then.
+      window.addEventListener('flutter-first-frame', () => {
+        launch.remove();
+        window.removeEventListener('error', onError, true);
+        window.removeEventListener('feed-reminder-startup-error', showError);
+      }, { once: true });
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

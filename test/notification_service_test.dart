@@ -7,12 +7,15 @@ import 'package:feed_reminder/services/notification_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+  const settingsChannel = MethodChannel('feed_reminder/notifications');
   late List<MethodCall> calls;
+  late List<MethodCall> settingsCalls;
   bool exact = false;
   bool permissionRevoked = false;
   bool initializationFails = false;
   setUp(() {
     calls = [];
+    settingsCalls = [];
     exact = false;
     permissionRevoked = false;
     initializationFails = false;
@@ -35,11 +38,61 @@ void main() {
             _ => null,
           };
         });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(settingsChannel, (call) async {
+          settingsCalls.add(call);
+          return null;
+        });
   });
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(settingsChannel, null);
+  });
+
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+    TargetPlatform.macOS,
+  ]) {
+    test(
+      '${platform.name} opens settings without requesting permission',
+      () async {
+        debugDefaultTargetPlatformOverride = platform;
+
+        await NotificationService().openNotificationSettings();
+
+        expect(settingsCalls.map((call) => call.method), [
+          'openNotificationSettings',
+        ]);
+        expect(calls, isEmpty);
+      },
+    );
+  }
+
+  test('unsupported platforms do not open notification settings', () async {
+    for (final platform in [TargetPlatform.linux, TargetPlatform.windows]) {
+      debugDefaultTargetPlatformOverride = platform;
+      await NotificationService().openNotificationSettings();
+    }
+
+    expect(settingsCalls, isEmpty);
+    expect(calls, isEmpty);
+  });
+
+  test('notification settings errors reach the caller', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(settingsChannel, (call) async {
+          throw PlatformException(code: 'settings_unavailable');
+        });
+
+    await expectLater(
+      NotificationService().openNotificationSettings(),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(calls, isEmpty);
   });
 
   test('a failed initialization can recover for the next reminder', () async {

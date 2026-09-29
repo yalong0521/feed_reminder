@@ -11,6 +11,7 @@ import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -83,6 +84,7 @@ void main() {
     StorageService? storage,
     double textScale = 1,
     AudioService? previewAudio,
+    NotificationService? notifications,
     ValueNotifier<bool>? active,
   }) async {
     final settings = SettingsProvider(storage: storage ?? StorageService());
@@ -94,7 +96,9 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider<SettingsProvider>.value(value: settings),
-          Provider<NotificationService>(create: (_) => _NoNotifications()),
+          Provider<NotificationService>.value(
+            value: notifications ?? _NoNotifications(),
+          ),
         ],
         child: Consumer<SettingsProvider>(
           builder: (context, settings, _) => MaterialApp(
@@ -142,6 +146,87 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AppMessageDialog), findsNothing);
   }
+
+  group('notification permission settings', () {
+    const channel = MethodChannel('feed_reminder/notifications');
+    const notificationChannel = MethodChannel(
+      'dexterous.com/flutter/local_notifications',
+    );
+    late List<String> calls;
+    late Completer<void> settingsGate;
+
+    setUp(() {
+      calls = [];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call.method);
+            await settingsGate.future;
+            return null;
+          });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(notificationChannel, (call) async {
+            calls.add(call.method);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(notificationChannel, null);
+    });
+
+    testWidgets('opens settings once while both permission rows are busy', (
+      tester,
+    ) async {
+      settingsGate = Completer<void>();
+      await showSettings(tester, notifications: NotificationService());
+      final notification = find.text('系统通知权限');
+      final exactAlarm = find.text('准时提醒权限');
+      await tester.ensureVisible(exactAlarm);
+      expect(find.text('前往系统通知设置'), findsOneWidget);
+      expect(find.text('前往系统授权'), findsOneWidget);
+
+      await tester.tap(notification);
+      await tester.pump();
+      await tester.tap(notification);
+      await tester.tap(exactAlarm);
+      await tester.pump();
+      expect(calls, ['openNotificationSettings']);
+
+      settingsGate.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(notification);
+      await tester.pumpAndSettle();
+      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+    testWidgets('failed settings navigation shows a notice and allows retry', (
+      tester,
+    ) async {
+      settingsGate = Completer<void>();
+      await showSettings(tester, notifications: NotificationService());
+      final notification = find.text('系统通知权限');
+      await tester.ensureVisible(notification);
+      await tester.tap(notification);
+      await tester.pump();
+      settingsGate.completeError(
+        PlatformException(code: 'settings_unavailable'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('无法打开权限设置，请在系统设置中检查应用权限。'), findsOneWidget);
+      await closeErrorDialog(tester);
+
+      settingsGate = Completer<void>()..complete();
+      await tester.tap(notification);
+      await tester.pumpAndSettle();
+      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+      expect(find.byType(AppMessageDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+  });
 
   testWidgets('settings fit a 320 pixel screen at 200 percent text scale', (
     tester,

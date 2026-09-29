@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="LaunchTheme" parent="@style/AppSystemBarTheme">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/app_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_icon_safe</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/launch_branding</item>
+    </style>
+</resources>
