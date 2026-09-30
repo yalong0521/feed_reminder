@@ -181,14 +181,6 @@ class SettingsProvider extends ChangeNotifier {
     return operation;
   }
 
-  String get feedIntervalDisplay {
-    final hours = feedIntervalMinutes ~/ 60;
-    final minutes = feedIntervalMinutes % 60;
-    if (hours == 0) return '$minutes分钟';
-    if (minutes == 0) return '$hours小时';
-    return '$hours小时$minutes分钟';
-  }
-
   void _notify() {
     if (!_disposed) notifyListeners();
   }

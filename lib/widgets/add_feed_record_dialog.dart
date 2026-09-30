@@ -178,7 +178,6 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                         child: Text(
                           AppStrings.addFeedTitle,
                           style: TextStyle(
-                            fontFamily: 'JournalChinese',
                             fontSize: compact ? 24 : 28,
                             height: 1.3,
                             fontWeight: FontWeight.w600,
@@ -205,20 +204,18 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     color: colors.border,
                     margin: EdgeInsets.symmetric(vertical: compact ? 8 : 24),
                   ),
-                  if (compact)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  // Both layouts share the taller field's content height.
+                  IntrinsicHeight(
+                    child: Flex(
+                      direction: compact ? Axis.horizontal : Axis.vertical,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Expanded(child: dateField),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 16, height: 16),
                         Expanded(child: timeField),
                       ],
-                    )
-                  else ...[
-                    dateField,
-                    const SizedBox(height: 16),
-                    timeField,
-                  ],
+                    ),
+                  ),
                   SizedBox(height: compact ? 8 : 16),
                   if (error != null)
                     Semantics(
@@ -276,10 +273,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                         key: const ValueKey('add-feed-cancel'),
                         radius: 28,
                         onPressed: _saving ? null : () => _close(false),
-                        child: const Text(
-                          AppStrings.cancel,
-                          style: TextStyle(fontFamily: 'JournalChinese'),
-                        ),
+                        child: const Text(AppStrings.cancel),
                       );
                       final save = AppButton(
                         key: const ValueKey('add-feed-save'),
@@ -290,10 +284,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                             ? CupertinoActivityIndicator(
                                 color: colors.onPrimary,
                               )
-                            : const Text(
-                                '保存记录',
-                                style: TextStyle(fontFamily: 'JournalChinese'),
-                              ),
+                            : const Text('保存记录'),
                       );
                       if (constraints.maxWidth < 300 &&
                           MediaQuery.textScalerOf(context).scale(16) > 20) {
@@ -381,9 +372,6 @@ class _PickerField extends StatelessWidget {
                       color: emphasizeValue
                           ? colors.primary
                           : colors.textPrimary,
-                      fontFamily: emphasizeValue
-                          ? 'JournalSerif'
-                          : 'JournalChinese',
                       fontSize: emphasizeValue ? (compact ? 29 : 36) : 18,
                       height: emphasizeValue ? 1 : 1.2,
                       fontWeight: emphasizeValue

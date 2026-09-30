@@ -13,28 +13,12 @@ class TimeUtils {
     return '$hour:$minute';
   }
 
-  static String formatInterval(Duration interval) {
-    final hours = interval.inHours;
-    final minutes = interval.inMinutes % 60;
-    if (hours > 0) {
-      return '+${hours}h${minutes.toString().padLeft(2, '0')}m';
-    }
-    return '+${minutes}m';
-  }
-
-  static String getDateGroup(DateTime date, {DateTime? now}) {
-    now ??= DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = DateTime(now.year, now.month, now.day - 1);
-    final dateOnly = DateTime(date.year, date.month, date.day);
-
-    if (dateOnly == today) {
-      return '今天';
-    } else if (dateOnly == yesterday) {
-      return '昨天';
-    } else {
-      return '更早';
-    }
+  static String formatInterval(int minutes) {
+    final hours = minutes ~/ 60;
+    final remainder = minutes % 60;
+    if (hours == 0) return '$remainder 分钟';
+    if (remainder == 0) return '$hours 小时';
+    return '$hours 小时 $remainder 分钟';
   }
 
   static bool isValidTime(String value) {
@@ -63,9 +47,5 @@ class TimeUtils {
       // Same day (e.g., 02:00 to 06:00)
       return currentMinutes >= startMinutes && currentMinutes < endMinutes;
     }
-  }
-
-  static Duration timeSince(DateTime from) {
-    return DateTime.now().difference(from);
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// A printed serif clock face. Tabular figures keep each tick in place.
+/// The serif face is reserved for countdown and standby time displays.
+/// Tabular figures keep each tick in place.
 class CountdownText extends StatelessWidget {
   const CountdownText(
     this.text, {
@@ -27,7 +28,6 @@ class CountdownText extends StatelessWidget {
       textDirection: TextDirection.ltr,
       style: TextStyle(
         fontFamily: 'JournalSerif',
-        fontFamilyFallback: const ['JournalChinese', 'Inter'],
         fontSize: fontSize,
         height: 1,
         fontWeight: MediaQuery.highContrastOf(context)

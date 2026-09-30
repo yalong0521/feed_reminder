@@ -221,8 +221,6 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   @override
   Widget build(BuildContext context) => MultiProvider(
     providers: [
-      Provider<StorageService>.value(value: _storage),
-      Provider<AudioService>.value(value: _audio),
       Provider<NotificationService>.value(value: _notifications),
       ChangeNotifierProvider<SettingsProvider>.value(value: _settings),
       ChangeNotifierProvider<FeedProvider>.value(value: _feed),
@@ -366,7 +364,6 @@ class _AppNavigation extends StatelessWidget {
                     child: Text(
                       label,
                       style: TextStyle(
-                        fontFamily: 'JournalChinese',
                         fontSize: rail ? 17 : 16,
                         color: active ? p.primary : p.textSecondary,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w400,
@@ -430,7 +427,6 @@ class _AppNavigation extends StatelessWidget {
                           child: Text(
                             AppStrings.appName,
                             style: TextStyle(
-                              fontFamily: 'JournalChinese',
                               color: p.primary,
                               fontSize: 28,
                               fontWeight: FontWeight.w400,
@@ -444,7 +440,6 @@ class _AppNavigation extends StatelessWidget {
                           child: Text(
                             '${data.day.month}月${data.day.day}日  周${'一二三四五六日'[data.day.weekday - 1]}',
                             style: TextStyle(
-                              fontFamily: 'JournalChinese',
                               fontSize: 14,
                               color: p.textSecondary,
                             ),
@@ -460,7 +455,6 @@ class _AppNavigation extends StatelessWidget {
                         Text(
                           '上次',
                           style: TextStyle(
-                            fontFamily: 'JournalChinese',
                             color: p.textSecondary,
                             fontSize: 14,
                           ),
@@ -473,7 +467,6 @@ class _AppNavigation extends StatelessWidget {
                                 ? '— —'
                                 : TimeUtils.formatTime(data.last!),
                             style: TextStyle(
-                              fontFamily: 'JournalSerif',
                               fontSize: 34,
                               height: 1.2,
                               color: p.textPrimary,
@@ -515,7 +508,6 @@ class _AppNavigation extends StatelessWidget {
                                 Text(
                                   '今天',
                                   style: TextStyle(
-                                    fontFamily: 'JournalChinese',
                                     color: p.textSecondary,
                                     fontSize: 14,
                                   ),
@@ -526,17 +518,11 @@ class _AppNavigation extends StatelessWidget {
                                     children: [
                                       TextSpan(
                                         text: '${data.count}',
-                                        style: const TextStyle(
-                                          fontFamily: 'JournalSerif',
-                                          fontSize: 34,
-                                        ),
+                                        style: const TextStyle(fontSize: 34),
                                       ),
                                       const TextSpan(
                                         text: ' 次',
-                                        style: TextStyle(
-                                          fontFamily: 'JournalChinese',
-                                          fontSize: 20,
-                                        ),
+                                        style: TextStyle(fontSize: 20),
                                       ),
                                     ],
                                   ),

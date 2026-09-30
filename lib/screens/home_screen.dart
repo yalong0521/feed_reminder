@@ -245,7 +245,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 excluding: _dimmed || _wakeKey != null,
                 child: LandscapeFeedPanel(
                   feed: feed,
-                  settings: settings,
                   quiet: quiet,
                   onRecord: _recordFeed,
                   onUndo: _undoFeed,

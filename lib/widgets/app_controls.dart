@@ -135,7 +135,6 @@ class AppButton extends StatelessWidget {
     this.padding,
     this.semanticLabel,
     this.radius = 16,
-    this.selected,
   });
 
   final Widget child;
@@ -147,7 +146,6 @@ class AppButton extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final String? semanticLabel;
   final double radius;
-  final bool? selected;
 
   @override
   Widget build(BuildContext context) {
@@ -183,7 +181,6 @@ class AppButton extends StatelessWidget {
     return AppPressable(
       onPressed: onPressed,
       semanticLabel: semanticLabel,
-      selected: selected,
       child: surface
           ? AppSurface(radius: radius, tinted: filled, child: content)
           : content,
@@ -194,14 +191,13 @@ class AppButton extends StatelessWidget {
 final _appNotices = Expando<_AppNoticeController>('Active app error dialog');
 
 /// Shows one explicit error dialog per navigator, replacing its content when
-/// another error arrives. [duration] is retained for call-site compatibility;
-/// dialogs stay open until the user closes them or chooses an action.
+/// another error arrives. Dialogs stay open until the user closes them or
+/// chooses an action.
 void showAppNotice(
   BuildContext context,
   String message, {
   String? actionLabel,
   VoidCallback? onAction,
-  Duration duration = const Duration(seconds: 4),
 }) {
   if (!context.mounted) {
     return;
@@ -388,7 +384,6 @@ Future<DateTime?> showAppDateTimePicker(
               padding: const EdgeInsets.all(20),
               child: DefaultTextStyle(
                 style: TextStyle(
-                  fontFamily: 'Inter',
                   color: AppPalette.of(context).textPrimary,
                   fontSize: 16,
                 ),

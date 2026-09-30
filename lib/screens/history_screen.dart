@@ -313,7 +313,6 @@ class _HistoryHeader extends StatelessWidget {
         Text(
           AppStrings.history,
           style: TextStyle(
-            fontFamily: 'JournalChinese',
             fontSize: compact ? 28 : 34,
             height: 1.2,
             fontWeight: FontWeight.w600,
@@ -348,11 +347,7 @@ class _HistoryHeader extends StatelessWidget {
         onPressed: saving ? null : onAdd,
         child: Text(
           '补记喂奶',
-          style: TextStyle(
-            fontFamily: 'JournalChinese',
-            color: colors.primary,
-            fontWeight: FontWeight.w500,
-          ),
+          style: TextStyle(color: colors.primary, fontWeight: FontWeight.w500),
         ),
       ),
     );
@@ -425,7 +420,6 @@ class _HistorySummary extends StatelessWidget {
             '按自己的节奏，\n慢慢长大。',
             style: TextStyle(
               color: colors.textSecondary,
-              fontFamily: 'JournalChinese',
               fontSize: 14,
               height: 1.8,
             ),
@@ -471,7 +465,6 @@ class _CountSummary extends StatelessWidget {
       label,
       style: TextStyle(
         color: colors.textSecondary,
-        fontFamily: 'JournalChinese',
         fontSize: compact ? 13 : 15,
       ),
     );
@@ -482,7 +475,6 @@ class _CountSummary extends StatelessWidget {
             text: '$count',
             style: TextStyle(
               color: colors.textPrimary,
-              fontFamily: 'JournalSerif',
               fontSize: compact ? 30 : 48,
               fontWeight: FontWeight.w400,
               letterSpacing: -1,
@@ -491,11 +483,7 @@ class _CountSummary extends StatelessWidget {
           ),
           TextSpan(
             text: ' 次',
-            style: TextStyle(
-              fontFamily: 'JournalChinese',
-              color: colors.textSecondary,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: colors.textSecondary, fontSize: 14),
           ),
         ],
       ),
@@ -552,7 +540,6 @@ class _DeleteRecordDetail extends StatelessWidget {
           Text(
             TimeUtils.formatTime(record.time),
             style: TextStyle(
-              fontFamily: 'JournalSerif',
               fontSize: 36,
               height: 1.2,
               color: colors.primary,
@@ -601,7 +588,6 @@ class _DayHeader extends StatelessWidget {
               '$relative${_fullDate(date)}',
               style: TextStyle(
                 color: colors.textSecondary,
-                fontFamily: 'JournalChinese',
                 fontSize: 14,
                 height: 1.5,
                 fontWeight: FontWeight.w500,
@@ -658,7 +644,6 @@ class _RecordRow extends StatelessWidget {
                       Text(
                         TimeUtils.formatTime(record.time),
                         style: TextStyle(
-                          fontFamily: 'JournalSerif',
                           fontSize: compact ? 32 : 38,
                           fontWeight: FontWeight.w400,
                           color: isLatest ? colors.primary : colors.textPrimary,
@@ -672,7 +657,6 @@ class _RecordRow extends StatelessWidget {
                           '最近一次',
                           style: TextStyle(
                             color: colors.primary,
-                            fontFamily: 'JournalChinese',
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
@@ -739,7 +723,6 @@ class _EmptyHistory extends StatelessWidget {
             '第一条记录，从这里开始。',
             style: TextStyle(
               fontSize: 22,
-              fontFamily: 'JournalChinese',
               height: 1.4,
               fontWeight: FontWeight.w600,
               color: colors.textPrimary,
@@ -760,10 +743,7 @@ class _EmptyHistory extends StatelessWidget {
             filled: true,
             radius: 28,
             onPressed: saving ? null : onAdd,
-            child: const Text(
-              '添加第一条记录',
-              style: TextStyle(fontFamily: 'JournalChinese'),
-            ),
+            child: const Text('添加第一条记录'),
           ),
         ],
       ),

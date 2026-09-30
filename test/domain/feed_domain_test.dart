@@ -1531,34 +1531,6 @@ void main() {
   );
 
   test(
-    'legacy storage additions also preserve all records and intervals',
-    () async {
-      final seed = [
-        for (var index = 0; index < 120; index++)
-          FeedRecord(
-            id: 'storage-$index',
-            time: now.subtract(Duration(hours: index + 1)),
-          ),
-      ];
-      await storage.setFeedHistory(seed);
-      final old = FeedRecord(
-        id: 'old-backfill',
-        time: seed.last.time.subtract(const Duration(days: 2)),
-      );
-      await storage.addFeedRecord(old);
-      final saved = await storage.getFeedHistory();
-      expect(saved, hasLength(121));
-      expect(saved.map((record) => record.id), [
-        ...seed.map((record) => record.id),
-        old.id,
-      ]);
-      expect(saved[119].intervalFromPrevious, const Duration(days: 2));
-      expect(saved.last.intervalFromPrevious, isNull);
-      expect(await storage.getLastFeedTime(), seed.first.time);
-    },
-  );
-
-  test(
     'settings changes synchronize listeners and persist across restart',
     () async {
       final settings = SettingsProvider(storage: storage);
@@ -1580,7 +1552,6 @@ void main() {
         settings.setFeedInterval(30),
       ]);
       expect(settings.feedIntervalMinutes, 30);
-      expect(settings.feedIntervalDisplay, '30分钟');
       expect(settings.isSaving, isFalse);
       final restored = SettingsProvider(storage: storage);
       addTearDown(restored.dispose);

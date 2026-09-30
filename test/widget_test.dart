@@ -21,7 +21,7 @@ import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
-import 'package:feed_reminder/widgets/countdown_scale.dart';
+import 'package:feed_reminder/widgets/countdown_timeline.dart';
 
 class _Audio extends AudioService {
   @override
@@ -307,6 +307,14 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
 }
 
 void main() {
+  setUpAll(() async {
+    // Use the bundled clock face so width-based fitting matches the app.
+    final clockFont = FontLoader('JournalSerif')
+      ..addFont(rootBundle.load('assets/fonts/Tinos-Regular.ttf'))
+      ..addFont(rootBundle.load('assets/fonts/Tinos-Bold.ttf'));
+    await clockFont.load();
+  });
+
   group('standby system bars', () {
     const nativeChannel = MethodChannel('feed_reminder/system_ui');
     const wakelockChannel =
@@ -543,75 +551,102 @@ void main() {
     }
   });
 
-  testWidgets('countdown scale follows time, interval changes and backfill', (
-    tester,
-  ) async {
-    var now = DateTime(2026, 9, 27, 12);
-    final app = await _mount(
-      tester,
-      size: const Size(844, 390),
-      clock: () => now,
-      seededRecords: [
-        FeedRecord(time: now.subtract(const Duration(minutes: 90))),
-      ],
-    );
-    double progress() =>
-        tester.widget<CountdownScale>(find.byType(CountdownScale)).progress;
-    expect(progress(), .5);
+  testWidgets(
+    'countdown timeline follows time, interval changes and backfill',
+    (tester) async {
+      var now = DateTime(2026, 9, 27, 12);
+      final app = await _mount(
+        tester,
+        size: const Size(844, 390),
+        clock: () => now,
+        seededRecords: [
+          FeedRecord(time: now.subtract(const Duration(minutes: 90))),
+        ],
+      );
+      expect(find.text('上次 10:30'), findsOneWidget);
+      expect(find.text('下一次 13:30'), findsOneWidget);
+      final midpoint = tester.getCenter(find.text('现在 12:00')).dx;
 
-    now = now.add(const Duration(minutes: 45));
-    await app.feed.refresh();
-    await tester.pumpAndSettle();
-    expect(progress(), .25);
+      now = now.add(const Duration(minutes: 45));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(find.text('现在 12:45')).dx, greaterThan(midpoint));
+      expect(find.text('下一次 13:30'), findsOneWidget);
 
-    await app.settings.setFeedInterval(270);
-    await tester.pumpAndSettle();
-    expect(progress(), .5);
+      await app.settings.setFeedInterval(270);
+      await tester.pumpAndSettle();
+      expect(find.text('下一次 15:00'), findsOneWidget);
+      expect(
+        tester.getCenter(find.text('现在 12:45')).dx,
+        closeTo(midpoint, .001),
+      );
 
-    await app.feed.addFeedRecordWithTime(
-      now.subtract(const Duration(minutes: 27)),
-    );
-    await tester.pumpAndSettle();
-    expect(progress(), .9);
+      final next = app.feed.nextFeedTime;
+      await app.feed.addFeedRecordWithTime(
+        now.subtract(const Duration(hours: 6)),
+      );
+      await tester.pumpAndSettle();
+      expect(app.feed.nextFeedTime, next);
+      expect(find.text('上次 10:30'), findsOneWidget);
+      expect(find.text('下一次 15:00'), findsOneWidget);
+      expect(
+        tester.getCenter(find.text('现在 12:45')).dx,
+        closeTo(midpoint, .001),
+      );
 
-    now = now.add(const Duration(minutes: 243));
-    await app.feed.refresh();
-    await tester.pumpAndSettle();
-    expect(progress(), 0);
-    await app.feed.stopAlert();
-    await tester.pumpAndSettle();
-    expect(progress(), 0);
+      await app.feed.addFeedRecordWithTime(
+        now.subtract(const Duration(minutes: 27)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('上次 12:18'), findsOneWidget);
+      expect(find.text('下一次 16:48'), findsOneWidget);
+      expect(tester.getCenter(find.text('现在 12:45')).dx, lessThan(midpoint));
 
-    now = now.add(const Duration(minutes: 10));
-    await app.feed.refresh();
-    await tester.pumpAndSettle();
-    expect(progress(), 0);
+      now = now.add(const Duration(minutes: 243));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('现在 16:48'), findsOneWidget);
+      expect(find.text('原定 16:48'), findsOneWidget);
+      expect(find.text('下一次 16:48'), findsNothing);
+      await app.feed.stopAlert();
+      await tester.pumpAndSettle();
+      expect(find.text('现在 16:48'), findsOneWidget);
+      expect(find.text('原定 16:48'), findsOneWidget);
 
-    now = DateTime(2026, 9, 27, 11);
-    await app.feed.refresh();
-    await tester.pumpAndSettle();
-    expect(
-      progress(),
-      1,
-      reason: 'A clock correction cannot overfill the scale.',
-    );
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      now = now.add(const Duration(minutes: 10));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('现在 16:58'), findsOneWidget);
+      expect(find.text('原定 16:48'), findsOneWidget);
 
-  testWidgets('empty countdown scale fills on swipe and restores on undo', (
+      now = DateTime(2026, 9, 27, 11);
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('现在 11:00'), findsOneWidget);
+      expect(find.text('上次 12:18'), findsOneWidget);
+      expect(find.text('下一次 16:48'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('empty countdown timeline fills on swipe and restores on undo', (
     tester,
   ) async {
     await _mount(tester, clock: () => DateTime(2026, 9, 27, 12));
-    double progress() =>
-        tester.widget<CountdownScale>(find.byType(CountdownScale)).progress;
-    expect(progress(), 0);
+    final labels = find.descendant(
+      of: find.byType(CountdownTimeline),
+      matching: find.byType(Text),
+    );
+    expect(labels, findsNothing);
     await _slideToRecord(tester);
     await tester.pumpAndSettle();
-    expect(progress(), 1);
+    expect(find.text('上次 12:00'), findsOneWidget);
+    expect(find.text('现在 12:00'), findsOneWidget);
+    expect(find.text('下一次 15:00'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('feed-slide-undo')));
     await tester.pumpAndSettle();
-    expect(progress(), 0);
+    expect(labels, findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -1397,31 +1432,27 @@ void main() {
       expect(find.text('喂奶记录'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('nav-settings')));
       await tester.pumpAndSettle();
-      expect(find.text('提醒偏好'), findsOneWidget);
+      expect(find.text('偏好设置'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 
-  testWidgets('next reminder stays attached to the scale as height changes', (
+  testWidgets('interval stays attached to the timeline as height changes', (
     tester,
   ) async {
     await _mount(tester, size: const Size(1280, 390), seeded: true);
-    final nextReminder = find.byWidgetPredicate(
-      (widget) =>
-          widget is Text &&
-          (widget.textSpan?.toPlainText().startsWith('下一次  ') ?? false),
-    );
+    final interval = find.text('本轮间隔 3 小时');
     double? previousTop;
     for (final height in [390.0, 480.0, 519.0, 520.0, 521.0, 640.0, 720.0]) {
       tester.view.physicalSize = Size(1280, height);
       await tester.pumpAndSettle();
-      final scale = tester.getRect(find.byType(CountdownScale));
-      final next = tester.getRect(nextReminder);
+      final timeline = tester.getRect(find.byType(CountdownTimeline));
+      final next = tester.getRect(interval);
       expect(
-        next.top - scale.bottom,
+        next.top - timeline.bottom,
         inInclusiveRange(0, 16),
         reason:
-            'The next feeding time should stay just below the scale at height $height.',
+            'The feeding interval should stay just below the timeline at height $height.',
       );
       if (height == 520 || height == 521) {
         expect(
@@ -1526,7 +1557,7 @@ void main() {
       await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(390, 844);
       await tester.pumpAndSettle();
-      expect(find.text('提醒偏好'), findsOneWidget);
+      expect(find.text('偏好设置'), findsOneWidget);
       expect(tester.state(home), same(originalHomeState));
       await tester.tap(find.byKey(const ValueKey('nav-home')));
       await tester.pumpAndSettle();
@@ -2144,6 +2175,68 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
+  for (final overdue in [false, true]) {
+    testWidgets(
+      'short landscape keeps the time readable and timeline reachable when overdue=$overdue',
+      (tester) async {
+        final now = DateTime(2026, 9, 30, 11);
+        final app = await _mount(
+          tester,
+          size: const Size(640, 320),
+          scale: 1.8,
+          padding: const FakeViewPadding(
+            top: 20,
+            left: 24,
+            right: 24,
+            bottom: 16,
+          ),
+          clock: () => now,
+          seededRecords: [
+            FeedRecord(time: now.subtract(Duration(hours: overdue ? 4 : 1))),
+          ],
+        );
+        final time = find.byKey(const ValueKey('landscape-countdown'));
+        final timeBounds = tester.getRect(time);
+        final scroll = find.byKey(const ValueKey('countdown-details-scroll'));
+        final initialViewport = tester.getRect(scroll);
+        expect(timeBounds.height, greaterThan(48));
+        expect(timeBounds.top, greaterThanOrEqualTo(initialViewport.top));
+        expect(timeBounds.bottom, lessThanOrEqualTo(initialViewport.bottom));
+        expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('nav-settings')).hitTestable(),
+          findsOneWidget,
+        );
+
+        if (overdue) {
+          expect(find.text('停止本次提醒').hitTestable(), findsOneWidget);
+        }
+        for (final label in [
+          '现在 11:00',
+          overdue ? '上次 07:00' : '上次 10:00',
+          overdue ? '原定 10:00' : '下一次 13:00',
+        ]) {
+          final target = find.text(label);
+          await tester.ensureVisible(target);
+          await tester.pumpAndSettle();
+          final viewport = tester.getRect(scroll);
+          final bounds = tester.getRect(target);
+          expect(bounds.top, greaterThanOrEqualTo(viewport.top));
+          expect(bounds.bottom, lessThanOrEqualTo(viewport.bottom));
+        }
+        if (overdue) {
+          final stop = find.text('停止本次提醒');
+          expect(stop.hitTestable(), findsOneWidget);
+          await tester.tap(stop);
+          await tester.pumpAndSettle();
+          expect(app.feed.isAlertAcknowledged, isTrue);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
   for (final size in [const Size(640, 320), const Size(740, 360)]) {
     for (final keyboardHeight in [180.0, 200.0]) {
       testWidgets(
@@ -2258,7 +2351,7 @@ void main() {
 
       void expectCurrentState(Brightness brightness) {
         expect(Theme.of(tester.element(home)).brightness, brightness);
-        expect(find.text('提醒偏好'), findsOneWidget);
+        expect(find.text('偏好设置'), findsOneWidget);
         expect(tester.state(home), same(originalHomeState));
         expect(app.feed.feedHistory.map((record) => record.id), recordIds);
         expect(app.feed.nextFeedTime, deadline);
@@ -2465,11 +2558,11 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('nav-settings')));
       await tester.pumpAndSettle();
       await setSystemBrightness(Brightness.light);
-      expect(find.text('提醒偏好'), findsOneWidget);
+      expect(find.text('偏好设置'), findsOneWidget);
       await setSystemBrightness(Brightness.dark);
-      expect(find.text('提醒偏好'), findsOneWidget);
+      expect(find.text('偏好设置'), findsOneWidget);
       expect(
-        tester.widget<Text>(find.text('提醒偏好')).style?.color,
+        tester.widget<Text>(find.text('偏好设置')).style?.color,
         AppPalette.dark.primary,
       );
       await tester.tap(find.byKey(const ValueKey('nav-home')));
@@ -2484,6 +2577,7 @@ void main() {
   for (final viewport in [
     (size: const Size(320, 640), scale: 1.0, brightness: Brightness.light),
     (size: const Size(390, 844), scale: 1.8, brightness: Brightness.light),
+    (size: const Size(640, 320), scale: 1.8, brightness: Brightness.light),
     (size: const Size(844, 390), scale: 1.0, brightness: Brightness.light),
     (size: const Size(1280, 900), scale: 1.0, brightness: Brightness.light),
     (size: const Size(320, 568), scale: 1.0, brightness: Brightness.dark),
@@ -2514,6 +2608,13 @@ void main() {
         await tester.tap(backfill);
         await tester.pumpAndSettle();
         expect(find.byType(AddFeedRecordDialog), findsOneWidget);
+        final dateField = find.byKey(const ValueKey('add-feed-date-field'));
+        final timeField = find.byKey(const ValueKey('add-feed-time-field'));
+        expect(
+          tester.getSize(dateField).height,
+          closeTo(tester.getSize(timeField).height, .001),
+          reason: 'Date and time fields stay equally tall in either layout',
+        );
         await tester.ensureVisible(
           find.byKey(const ValueKey('add-feed-cancel')),
         );

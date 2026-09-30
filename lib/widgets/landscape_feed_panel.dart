@@ -2,11 +2,10 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../providers/feed_provider.dart';
-import '../providers/settings_provider.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
-import 'countdown_scale.dart';
+import 'countdown_timeline.dart';
 import 'countdown_text.dart';
 import 'feed_button.dart';
 
@@ -15,7 +14,6 @@ class LandscapeFeedPanel extends StatelessWidget {
   const LandscapeFeedPanel({
     super.key,
     required this.feed,
-    required this.settings,
     required this.quiet,
     required this.onRecord,
     required this.onUndo,
@@ -24,7 +22,6 @@ class LandscapeFeedPanel extends StatelessWidget {
     this.onHistory,
   });
   final FeedProvider feed;
-  final SettingsProvider settings;
   final bool quiet;
   final Future<void> Function() onRecord;
   final Future<void> Function() onUndo;
@@ -108,7 +105,6 @@ class LandscapeFeedPanel extends StatelessWidget {
           Text(
             AppStrings.appName,
             style: TextStyle(
-              fontFamily: 'JournalChinese',
               color: p.primary,
               fontSize: 30,
               fontWeight: FontWeight.w600,
@@ -117,11 +113,7 @@ class LandscapeFeedPanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '${now.month}月${now.day}日  周${'一二三四五六日'[now.weekday - 1]}',
-            style: TextStyle(
-              fontFamily: 'JournalChinese',
-              color: p.textSecondary,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: p.textSecondary, fontSize: 14),
           ),
         ],
       ),
@@ -134,95 +126,129 @@ class LandscapeFeedPanel extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(top: landscape ? 8 : 0),
       child: Column(
-        // Keep the clock, scale and reminder together at every screen height.
         mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Flexible(
-            child: FractionallySizedBox(
-              widthFactor: landscape ? .94 : 1,
-              alignment: Alignment.center,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.center,
-                child: Row(
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                key: const ValueKey('countdown-details-scroll'),
+                primary: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      _alert
-                          ? '该喂奶了，已超过'
-                          : _warning
-                          ? '快到喂奶时间'
-                          : !_hasRecord
-                          ? '等待第一条记录'
-                          : '距离下次喂奶',
-                      style: TextStyle(
-                        fontFamily: 'JournalChinese',
-                        color: _alert || _warning ? color : p.textPrimary,
-                        fontSize: landscape ? 19 : 17,
+                    // Keep the full clock visible before scrolling to details.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight,
                       ),
-                    ),
-                    if (quiet) ...[
-                      const SizedBox(width: 10),
-                      Tooltip(
-                        message: '夜间静默',
-                        child: Icon(
-                          CupertinoIcons.moon,
-                          size: 16,
-                          color: p.textSecondary,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: SizedBox(
+                          width: constraints.maxWidth,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              FractionallySizedBox(
+                                widthFactor: landscape ? .94 : 1,
+                                alignment: Alignment.center,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.center,
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        _alert
+                                            ? '该喂奶了，已超过'
+                                            : _warning
+                                            ? '快到喂奶时间'
+                                            : !_hasRecord
+                                            ? '等待第一条记录'
+                                            : '距离下次喂奶',
+                                        style: TextStyle(
+                                          color: _alert || _warning
+                                              ? color
+                                              : p.textPrimary,
+                                          fontSize: landscape ? 19 : 17,
+                                        ),
+                                      ),
+                                      if (quiet) ...[
+                                        const SizedBox(width: 10),
+                                        Tooltip(
+                                          message: '夜间静默',
+                                          child: Icon(
+                                            CupertinoIcons.moon,
+                                            size: 16,
+                                            color: p.textSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              FractionallySizedBox(
+                                widthFactor: landscape ? .94 : 1,
+                                alignment: Alignment.center,
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.center,
+                                  child: CountdownText(
+                                    _hasRecord
+                                        ? TimeUtils.formatDuration(
+                                            _alert
+                                                ? feed.overdue
+                                                : feed.timeRemaining,
+                                          )
+                                        : '--:--:--',
+                                    key: ValueKey(
+                                      landscape
+                                          ? 'landscape-countdown'
+                                          : 'portrait-countdown',
+                                    ),
+                                    fontSize: landscape ? 180 : 108,
+                                    color: color,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 4),
+                    FractionallySizedBox(
+                      widthFactor: .86,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: CountdownTimeline(
+                            lastFeedTime: feed.lastFeedTime,
+                            nextFeedTime: feed.nextFeedTime,
+                            now: feed.referenceTime,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (!_alert)
+                      SizedBox(height: 28, child: _countdownFooter(context)),
                   ],
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Flexible(
-            flex: 5,
-            child: FractionallySizedBox(
-              widthFactor: landscape ? .94 : 1,
-              alignment: Alignment.center,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.center,
-                child: CountdownText(
-                  _hasRecord
-                      ? TimeUtils.formatDuration(
-                          _alert ? feed.overdue : feed.timeRemaining,
-                        )
-                      : '--:--:--',
-                  key: ValueKey(
-                    landscape ? 'landscape-countdown' : 'portrait-countdown',
-                  ),
-                  fontSize: landscape ? 180 : 108,
-                  color: color,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          FractionallySizedBox(
-            widthFactor: .86,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: CountdownScale(
-                  remaining: _hasRecord ? feed.timeRemaining : Duration.zero,
-                  interval: Duration(minutes: feed.feedIntervalMinutes),
-                  color: color,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(height: 48, child: _nextReminder(context)),
+          // Stopping an audible reminder must not require scrolling.
+          if (_alert) SizedBox(height: 48, child: _countdownFooter(context)),
         ],
       ),
     );
   }
 
-  Widget _nextReminder(BuildContext context) {
+  Widget _countdownFooter(BuildContext context) {
     final p = AppPalette.of(context);
     if (_alert) {
       return Align(
@@ -248,39 +274,14 @@ class LandscapeFeedPanel extends StatelessWidget {
         ),
       );
     }
-    final next = feed.nextFeedTime;
-    final dateChanged =
-        next != null && !DateUtils.isSameDay(feed.referenceTime, next);
-    return Tooltip(
-      message: '提醒间隔 ${feed.feedIntervalMinutes} 分钟',
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.center,
-        child: Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: !_hasRecord ? '记录后，开始计时' : '下一次  ',
-                style: TextStyle(
-                  fontFamily: 'JournalChinese',
-                  fontSize: 17,
-                  color: p.textSecondary,
-                ),
-              ),
-              if (_hasRecord)
-                TextSpan(
-                  text:
-                      '${dateChanged ? '${next.month}/${next.day} ' : ''}${TimeUtils.formatTime(next!)}',
-                  style: TextStyle(
-                    fontFamily: 'JournalSerif',
-                    fontSize: 25,
-                    color: p.primary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-            ],
-          ),
-        ),
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: Text(
+        _hasRecord
+            ? '本轮间隔 ${TimeUtils.formatInterval(feed.feedIntervalMinutes)}'
+            : '记录后，开始计时',
+        style: TextStyle(fontSize: 13, color: p.textSecondary),
       ),
     );
   }
@@ -293,20 +294,11 @@ class LandscapeFeedPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontFamily: 'JournalChinese',
-              color: p.textSecondary,
-              fontSize: 13,
-            ),
-          ),
+          Text(title, style: TextStyle(color: p.textSecondary, fontSize: 13)),
           const SizedBox(height: 4),
           Text(
             value,
             style: TextStyle(
-              fontFamily: 'JournalSerif',
-              fontFamilyFallback: const ['JournalChinese'],
               color: p.textPrimary,
               fontSize: 30,
               height: 1.3,
@@ -363,9 +355,6 @@ class LandscapeFeedPanel extends StatelessWidget {
               onPressed: onRecord,
               onUndo: onUndo,
               enabled: feed.isInitialized && !feed.isSaving,
-              orientation: landscape
-                  ? Orientation.landscape
-                  : Orientation.portrait,
             ),
           ),
           SizedBox(width: landscape ? 22 : 12),
@@ -388,11 +377,7 @@ class LandscapeFeedPanel extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   child: Text(
                     '补记',
-                    style: TextStyle(
-                      fontFamily: 'JournalChinese',
-                      color: p.primary,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(color: p.primary, fontSize: 16),
                   ),
                 ),
               ),

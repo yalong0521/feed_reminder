@@ -124,8 +124,7 @@ void main() {
     expect(find.text('旧操作'), findsNothing);
     expect(find.text('请重试最后一次保存'), findsOneWidget);
     expect(find.text('重试保存'), findsOneWidget);
-    // Errors remain visible until dismissed, regardless of the
-    // duration accepted by the old helper API.
+    // Errors remain visible until dismissed.
     await tester.pump(const Duration(minutes: 1));
     expect(_dialog, findsOneWidget);
     await tester.tap(_action);

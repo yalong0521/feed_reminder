@@ -234,7 +234,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final settings = await showSettings(tester, textScale: 2);
-    expect(find.text('提醒偏好'), findsOneWidget);
+    expect(find.text('偏好设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
     for (final mode in [ThemeMode.dark, ThemeMode.light, ThemeMode.system]) {
       final chip = find.byKey(ValueKey('theme-mode-${mode.name}'));

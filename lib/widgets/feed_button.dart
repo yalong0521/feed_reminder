@@ -11,15 +11,11 @@ import 'app_controls.dart';
 class FeedButton extends StatefulWidget {
   final Future<void> Function() onPressed;
   final Future<void> Function()? onUndo;
-  final VoidCallback? onSuccess;
-  final Orientation orientation;
   final bool enabled;
   const FeedButton({
     super.key,
     required this.onPressed,
     this.onUndo,
-    this.onSuccess,
-    this.orientation = Orientation.portrait,
     this.enabled = true,
   });
   @override
@@ -96,7 +92,6 @@ class _FeedButtonState extends State<FeedButton>
         _busy = false;
         _undoFailed = false;
       });
-      widget.onSuccess?.call();
       _scheduleReset();
     } catch (_) {
       if (!mounted) return;
@@ -386,7 +381,6 @@ class _FeedButtonState extends State<FeedButton>
                                                 alpha: widget.enabled ? 1 : .5,
                                               ),
                                           fontSize: 16,
-                                          fontFamily: 'JournalChinese',
                                           fontWeight: FontWeight.w500,
                                         ),
                                       ),

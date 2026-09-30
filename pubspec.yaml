@@ -70,23 +70,15 @@ flutter:
 
   assets:
     - assets/sounds/
-    - assets/fonts/OFL-Inter.txt
     - assets/fonts/OFL-Tinos.txt
-    - assets/fonts/OFL-NotoSerifSC.txt
 
   fonts:
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/InterVariable.ttf
     - family: JournalSerif
       fonts:
         - asset: assets/fonts/Tinos-Regular.ttf
           weight: 400
         - asset: assets/fonts/Tinos-Bold.ttf
           weight: 700
-    - family: JournalChinese
-      fonts:
-        - asset: assets/fonts/NotoSerifSCSubset.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

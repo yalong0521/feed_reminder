@@ -73,7 +73,6 @@ class AppMessageDialog extends StatelessWidget {
                                     child: Text(
                                       title,
                                       style: TextStyle(
-                                        fontFamily: 'JournalChinese',
                                         fontSize: 24,
                                         height: 1.4,
                                         fontWeight: FontWeight.w500,

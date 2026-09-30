@@ -212,22 +212,6 @@ class StorageService {
     }
   }
 
-  Future<void> addFeedRecord(FeedRecord record) async {
-    final history = await getFeedHistory();
-    history.add(record);
-    history.sort((a, b) => b.time.compareTo(a.time));
-    await saveFeedState([
-      for (var i = 0; i < history.length; i++)
-        FeedRecord(
-          id: history[i].id,
-          time: history[i].time,
-          intervalFromPrevious: i + 1 < history.length
-              ? history[i].time.difference(history[i + 1].time)
-              : null,
-        ),
-    ]);
-  }
-
   Future<bool> getBurnInProtectionEnabled() async =>
       (await _prefsSafe).getBool(StorageKeys.burnInProtectionEnabled) ??
       AppDefaults.burnInProtectionEnabled;

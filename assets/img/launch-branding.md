@@ -3,8 +3,8 @@
 - 桌面图标继续使用 `app_icon.png`；开屏专用 `launch_icon.png` 带透明圆角，由内置 imagegen 基于原图处理，避免依赖各平台是否自动裁切。
 - Android、iOS、鸿蒙及 Web 使用同一份开屏图，Web 不再单独依靠 CSS 圆角模拟。生成要求见 `launch-icon-prompt.txt`。
 - `launch-branding.svg` 与 `launch-branding-dark.svg` 是浅色、深色字标母版，画布为 200 × 80。
-- 标题为“奶点记”，短句为“记下每一餐，安心每一天”。字形来自项目已授权使用的 `NotoSerifSCSubset.ttf`，使用 500 字重；标题 26、字距 5，短句 11、字距 1。
-- SVG 已将文字转为路径，原生启动时无需加载字体。字体许可见 `assets/fonts/OFL-NotoSerifSC.txt`。
+- 标题为“奶点记”，短句为“记下每一餐，安心每一天”。字形轮廓沿用此前从 Noto Serif SC 转换的路径，使用 500 字重；标题 26、字距 5，短句 11、字距 1。
+- SVG 已将文字转为路径，不嵌入或加载字体文件。依据 [OFL 官方 FAQ 1.1.1–1.1.2](https://openfontlicense.org/ofl-faq/)，这类图形作品无需附带字体许可；项目不再打包 Noto 字体及其许可文件。
 - 鸿蒙的 `startWindowBrandingImage` 采用只缩小、不放大的图片布局。其 base/dark 资源单独以 `800 × 320` 的内禀尺寸导出，保留 `200 × 80` 的 viewBox，并将副标题提高到 14；避免把 200 像素直接作为高密度屏上的最终宽度。不要用普通母版直接覆盖这两份资源。
 - 浅色背景 / 主色 / 次文字色：`#FAF6EE` / `#AD593C` / `#706257`；深色：`#221E1B` / `#EDA987` / `#C5B3A2`，与 `AppPalette` 保持一致。
 

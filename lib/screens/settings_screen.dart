@@ -11,6 +11,7 @@ import '../providers/settings_provider.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 import '../utils/constants.dart';
+import '../utils/time_utils.dart';
 import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
 import '../widgets/app_surface.dart';
@@ -151,7 +152,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         context: context,
         builder: (context) => DefaultTextStyle(
           style: TextStyle(
-            fontFamily: 'Inter',
             fontSize: 16,
             color: AppPalette.of(context).textPrimary,
           ),
@@ -407,7 +407,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                           '外观主题',
                           style: TextStyle(
                             fontSize: 16,
-                            fontFamily: 'JournalChinese',
                             fontWeight: FontWeight.w500,
                             color: colors.textPrimary,
                           ),
@@ -544,9 +543,8 @@ class _SettingsHeader extends StatelessWidget {
       ],
     );
     final title = Text(
-      '提醒偏好',
+      '偏好设置',
       style: TextStyle(
-        fontFamily: 'JournalChinese',
         fontSize: compact ? 28 : 36,
         fontWeight: FontWeight.w500,
         letterSpacing: .5,
@@ -564,7 +562,7 @@ class _SettingsHeader extends StatelessWidget {
           children: [
             title,
             const SizedBox(height: 8),
-            Text('为每一天，设置舒适的节奏。', style: _descriptionStyle(context)),
+            Text('提醒与显示，按你的习惯。', style: _descriptionStyle(context)),
             const SizedBox(height: 14),
             Container(width: 38, height: 1.5, color: colors.primary),
           ],
@@ -630,14 +628,6 @@ TextStyle _hintStyle(BuildContext context) => TextStyle(
 String _presetLabel(int minutes) =>
     '${minutes % 60 == 0 ? minutes ~/ 60 : minutes / 60} 小时';
 
-String _intervalLabel(int minutes) {
-  final hours = minutes ~/ 60;
-  final remainder = minutes % 60;
-  if (hours == 0) return '$remainder 分钟';
-  if (remainder == 0) return '$hours 小时';
-  return '$hours 小时 $remainder 分钟';
-}
-
 class _IntervalPreference extends StatelessWidget {
   const _IntervalPreference({
     required this.minutes,
@@ -660,11 +650,9 @@ class _IntervalPreference extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
-          _intervalLabel(minutes),
+          TimeUtils.formatInterval(minutes),
           key: const ValueKey('interval-value'),
           style: TextStyle(
-            fontFamily: 'JournalSerif',
-            fontFamilyFallback: const ['JournalChinese'],
             fontSize: 36,
             height: 1.25,
             fontWeight: FontWeight.w400,
@@ -750,7 +738,6 @@ class _SettingsGroup extends StatelessWidget {
               child: Text(
                 title,
                 style: TextStyle(
-                  fontFamily: 'JournalChinese',
                   fontSize: 20,
                   fontWeight: FontWeight.w500,
                   color: colors.textPrimary,
@@ -820,7 +807,6 @@ class _ToggleRow extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontFamily: 'JournalChinese',
                     fontSize: 16,
                     height: 1.45,
                     fontWeight: FontWeight.w500,
@@ -895,8 +881,6 @@ class _PreferenceOption extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontFamily: icon == null ? 'JournalSerif' : 'JournalChinese',
-                  fontFamilyFallback: const ['JournalChinese'],
                   fontSize: icon == null ? 16 : 14,
                   fontWeight: FontWeight.w500,
                   color: foreground,
@@ -947,7 +931,6 @@ class _TimeControl extends StatelessWidget {
                       child: Text(
                         value,
                         style: TextStyle(
-                          fontFamily: 'JournalSerif',
                           fontSize: 29,
                           fontWeight: FontWeight.w400,
                           letterSpacing: -.3,
@@ -964,11 +947,7 @@ class _TimeControl extends StatelessWidget {
             );
             final labelText = Text(
               label,
-              style: TextStyle(
-                fontFamily: 'JournalChinese',
-                fontSize: 16,
-                color: colors.textPrimary,
-              ),
+              style: TextStyle(fontSize: 16, color: colors.textPrimary),
             );
             if (MediaQuery.textScalerOf(context).scale(14) > 20) {
               return Column(
@@ -1001,12 +980,7 @@ class _ActionLabel extends StatelessWidget {
     children: [
       Icon(icon, size: 17),
       const SizedBox(width: 8),
-      Flexible(
-        child: Text(
-          label,
-          style: const TextStyle(fontFamily: 'JournalChinese'),
-        ),
-      ),
+      Flexible(child: Text(label)),
     ],
   );
 }
@@ -1042,11 +1016,7 @@ class _PermissionRow extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: TextStyle(
-                      fontFamily: 'JournalChinese',
-                      fontSize: 16,
-                      color: colors.textPrimary,
-                    ),
+                    style: TextStyle(fontSize: 16, color: colors.textPrimary),
                   ),
                   const SizedBox(height: 5),
                   Text(subtitle, style: _hintStyle(context)),
@@ -1133,7 +1103,6 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                     Text(
                       '自定义喂奶间隔',
                       style: TextStyle(
-                        fontFamily: 'JournalChinese',
                         fontSize: 24,
                         fontWeight: FontWeight.w500,
                         color: colors.primary,
@@ -1158,7 +1127,6 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       textInputAction: TextInputAction.done,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: TextStyle(
-                        fontFamily: 'JournalSerif',
                         fontSize: 40,
                         fontWeight: FontWeight.w400,
                         color: colors.primary,
@@ -1205,19 +1173,13 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                         AppButton(
                           onPressed: _close,
                           radius: 6,
-                          child: const Text(
-                            '取消',
-                            style: TextStyle(fontFamily: 'JournalChinese'),
-                          ),
+                          child: const Text('取消'),
                         ),
                         AppButton(
                           filled: true,
                           radius: 6,
                           onPressed: _submit,
-                          child: const Text(
-                            '保存',
-                            style: TextStyle(fontFamily: 'JournalChinese'),
-                          ),
+                          child: const Text('保存'),
                         ),
                       ],
                     ),
