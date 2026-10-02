@@ -8,6 +8,7 @@ import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
+import 'package:feed_reminder/utils/privacy_policy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -133,6 +134,7 @@ void main() {
               NotificationSettingsResult.needsConfirmation;
         }
         final storage = StorageService();
+        await storage.setAcceptedPrivacyPolicyVersion(PrivacyPolicy.version);
         final audio = _QuietAudio();
         final feed = FeedProvider(
           storage: storage,

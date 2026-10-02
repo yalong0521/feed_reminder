@@ -12,15 +12,19 @@ import 'providers/feed_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/history_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/privacy_policy_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/audio_service.dart';
 import 'services/notification_service.dart';
+import 'services/privacy_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 import 'utils/constants.dart';
+import 'utils/privacy_policy.dart';
 import 'utils/time_utils.dart';
+import 'widgets/app_message_dialog.dart';
 
-/// Owns service lifetimes and synchronizes settings independently of the views.
+/// Uses platform-managed consent on HarmonyOS and a local notice elsewhere.
 class FeedReminderApp extends StatefulWidget {
   final StorageService? storage;
   final AudioService? audioService;
@@ -41,7 +45,190 @@ class FeedReminderApp extends StatefulWidget {
   State<FeedReminderApp> createState() => _FeedReminderAppState();
 }
 
-class _FeedReminderAppState extends State<FeedReminderApp>
+class _FeedReminderAppState extends State<FeedReminderApp> {
+  late final StorageService _storage;
+  bool _checkingConsent = true;
+  bool _accepted = false;
+  bool _savingConsent = false;
+  bool _consentReadFailed = false;
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _storage = widget.storage ?? StorageService();
+    // AppGallery's hosted declaration is presented by HarmonyOS at launch.
+    // A second, app-owned notice would conflict with the hosted consent flow.
+    if (PrivacyService.usesHostedPolicy) {
+      _accepted = true;
+      _checkingConsent = false;
+    } else {
+      unawaited(_readConsent());
+    }
+  }
+
+  Future<void> _readConsent() async {
+    setState(() {
+      _checkingConsent = true;
+      _consentReadFailed = false;
+      _notice = null;
+    });
+    try {
+      final version = await _storage.getAcceptedPrivacyPolicyVersion();
+      if (!mounted) return;
+      setState(() {
+        _accepted = version == PrivacyPolicy.version;
+        _checkingConsent = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _checkingConsent = false;
+        _consentReadFailed = true;
+        _notice = '无法读取隐私确认状态，请重试。';
+      });
+    }
+  }
+
+  Future<void> _acceptPrivacyPolicy() async {
+    setState(() {
+      _savingConsent = true;
+      _notice = null;
+    });
+    try {
+      await _storage.setAcceptedPrivacyPolicyVersion(PrivacyPolicy.version);
+      if (!mounted) return;
+      // Persist first: failed saves must not start providers, restore reminders,
+      // or trigger a system permission prompt, including after an upgrade.
+      setState(() => _accepted = true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _savingConsent = false;
+        _notice = '隐私确认保存失败，请重试。同意成功前不会启动记录与提醒功能。';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_accepted) {
+      return _ConsentedFeedReminderApp(
+        storage: _storage,
+        audioService: widget.audioService,
+        notificationService: widget.notificationService,
+        feedProvider: widget.feedProvider,
+        settingsProvider: widget.settingsProvider,
+        enablePlatformEffects: widget.enablePlatformEffects,
+      );
+    }
+    return MaterialApp(
+      title: AppStrings.appName,
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      scrollBehavior: const CupertinoScrollBehavior(),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      home: Builder(
+        builder: (context) => PopScope(
+          canPop: false,
+          child: Scaffold(
+            body: AppBackdrop(
+              child: _checkingConsent
+                  ? const Center(child: CircularProgressIndicator())
+                  : AppMessageDialog(
+                      key: const ValueKey('privacy-consent-dialog'),
+                      title: '欢迎使用奶点记',
+                      icon: CupertinoIcons.hand_raised,
+                      content: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(PrivacyPolicy.notice),
+                          const SizedBox(height: 12),
+                          AppButton(
+                            key: const ValueKey('privacy-policy-read'),
+                            onPressed: _savingConsent
+                                ? null
+                                : () => showPrivacyPolicy(context),
+                            child: Text(
+                              '阅读《隐私政策》',
+                              style: TextStyle(
+                                color: AppPalette.of(context).primary,
+                              ),
+                            ),
+                          ),
+                          if (_notice != null) ...[
+                            const SizedBox(height: 12),
+                            Semantics(liveRegion: true, child: Text(_notice!)),
+                          ],
+                        ],
+                      ),
+                      actions: [
+                        AppButton(
+                          key: const ValueKey('privacy-consent-decline'),
+                          onPressed: _savingConsent
+                              ? null
+                              : () => setState(() {
+                                  _notice = '您暂未同意，可继续阅读隐私政策，再决定是否使用奶点记。';
+                                }),
+                          child: const Text('暂不同意'),
+                        ),
+                        if (_consentReadFailed)
+                          AppButton(
+                            key: const ValueKey('privacy-consent-retry'),
+                            filled: true,
+                            onPressed: _readConsent,
+                            child: const Text('重试'),
+                          )
+                        else
+                          AppButton(
+                            key: const ValueKey('privacy-consent-accept'),
+                            filled: true,
+                            onPressed: _savingConsent
+                                ? null
+                                : _acceptPrivacyPolicy,
+                            child: Text(_savingConsent ? '正在保存…' : '同意并继续'),
+                          ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Owns service lifetimes only after the current privacy policy is accepted.
+class _ConsentedFeedReminderApp extends StatefulWidget {
+  const _ConsentedFeedReminderApp({
+    required this.storage,
+    this.audioService,
+    this.notificationService,
+    this.feedProvider,
+    this.settingsProvider,
+    required this.enablePlatformEffects,
+  });
+
+  final StorageService storage;
+  final AudioService? audioService;
+  final NotificationService? notificationService;
+  final FeedProvider? feedProvider;
+  final SettingsProvider? settingsProvider;
+  final bool enablePlatformEffects;
+
+  @override
+  State<_ConsentedFeedReminderApp> createState() =>
+      _ConsentedFeedReminderAppState();
+}
+
+class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     with WidgetsBindingObserver {
   static const _systemUiChannel = MethodChannel('feed_reminder/system_ui');
   late final StorageService _storage;
@@ -50,7 +237,9 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   late final SettingsProvider _settings;
   late final FeedProvider _feed;
   int _index = 0;
-  bool _foreground = true;
+  late bool _foreground;
+  bool _initializingNotifications = false;
+  bool _notificationPermissionsRequested = false;
   bool _wakelock = false;
   bool _displayDimmed = false;
   bool? _systemBarsHidden;
@@ -60,7 +249,11 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _storage = widget.storage ?? StorageService();
+    // A consent read/write may finish after the app has already backgrounded.
+    // Inherit that state instead of treating this newly mounted shell as active.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    _storage = widget.storage;
     _audio = widget.audioService ?? AudioService();
     _notifications = widget.notificationService ?? NotificationService();
     _settings = widget.settingsProvider ?? SettingsProvider(storage: _storage);
@@ -71,6 +264,7 @@ class _FeedReminderAppState extends State<FeedReminderApp>
           audioService: _audio,
           notificationService: _notifications,
         );
+    _feed.setForeground(_foreground);
     _settings.addListener(_syncSettings);
     _feed.addListener(_syncWakelock);
     Future.wait([_settings.ready, _feed.ready]).then((_) {
@@ -125,8 +319,16 @@ class _FeedReminderAppState extends State<FeedReminderApp>
   }
 
   Future<void> _initializeNotifications() async {
+    if (_initializingNotifications ||
+        _notificationPermissionsRequested ||
+        !_foreground) {
+      return;
+    }
+    _initializingNotifications = true;
     try {
       await _notifications.init();
+      if (!mounted || !_foreground) return;
+      _notificationPermissionsRequested = true;
       await _notifications.requestPermissions();
       if (mounted && _notifications.isSupported) {
         // Restoring records can attempt scheduling before the permission
@@ -136,6 +338,8 @@ class _FeedReminderAppState extends State<FeedReminderApp>
     } catch (error) {
       // Notification permissions must never prevent access to saved records.
       debugPrint('Notification initialization unavailable: $error');
+    } finally {
+      _initializingNotifications = false;
     }
   }
 
@@ -173,6 +377,9 @@ class _FeedReminderAppState extends State<FeedReminderApp>
     _feed.setForeground(foreground);
     _syncWakelock();
     _syncSystemUi(force: foreground);
+    if (foreground && widget.enablePlatformEffects) {
+      unawaited(_initializeNotifications());
+    }
   }
 
   void _selectPage(int index) {

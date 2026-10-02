@@ -15,6 +15,7 @@ import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
+import 'package:feed_reminder/utils/privacy_policy.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
 import 'package:feed_reminder/widgets/app_message_dialog.dart';
 
@@ -52,6 +53,9 @@ void main() {
   ) async {
     // Exercise the real engine/plugins without touching the device's stored records.
     SharedPreferences.setMockInitialValues({'burnInProtectionEnabled': false});
+    await StorageService().setAcceptedPrivacyPolicyVersion(
+      PrivacyPolicy.version,
+    );
     await tester.pumpWidget(
       const FeedReminderApp(enablePlatformEffects: false),
     );
@@ -185,6 +189,7 @@ void main() {
         ]),
       });
       final storage = StorageService();
+      await storage.setAcceptedPrivacyPolicyVersion(PrivacyPolicy.version);
       final audio = AudioService();
       final notifications = NotificationService();
       addTearDown(audio.dispose);

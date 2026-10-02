@@ -9,6 +9,7 @@ import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
+import 'package:feed_reminder/utils/privacy_policy.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
 import 'package:flutter/material.dart';
@@ -65,6 +66,7 @@ Future<void> _mountApp(
   _Audio audio,
   _Notifications notifications,
 ) async {
+  await storage.setAcceptedPrivacyPolicyVersion(PrivacyPolicy.version);
   tester.view.physicalSize = const Size(844, 390);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);

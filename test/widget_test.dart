@@ -16,6 +16,7 @@ import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
 import 'package:feed_reminder/utils/constants.dart';
+import 'package:feed_reminder/utils/privacy_policy.dart';
 import 'package:feed_reminder/widgets/add_feed_record_dialog.dart';
 import 'package:feed_reminder/widgets/app_surface.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
@@ -279,6 +280,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
       ),
   });
   final storage = storageOverride ?? StorageService();
+  await storage.setAcceptedPrivacyPolicyVersion(PrivacyPolicy.version);
   final audio = audioOverride ?? _Audio();
   final notifications = notificationsOverride ?? _Notifications();
   final feed = FeedProvider(

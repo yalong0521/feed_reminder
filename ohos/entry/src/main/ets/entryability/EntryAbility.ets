@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { FlutterAbility, FlutterEngine } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
 import FeedReminderNotifications from '../plugins/FeedReminderNotifications';
+import FeedReminderPrivacy from '../plugins/FeedReminderPrivacy';
 
 export default class EntryAbility extends FlutterAbility {
   provideFlutterEngine(context: common.Context): FlutterEngine {
@@ -16,6 +17,7 @@ export default class EntryAbility extends FlutterAbility {
     super.configureFlutterEngine(flutterEngine);
     GeneratedPluginRegistrant.registerWith(flutterEngine);
     flutterEngine.getPlugins()?.add(new FeedReminderNotifications());
+    flutterEngine.getPlugins()?.add(new FeedReminderPrivacy());
   }
 
   shouldDestroyEngineWithHost(): boolean {

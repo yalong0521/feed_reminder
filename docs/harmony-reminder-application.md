@@ -36,7 +36,13 @@
 
 2026-09-29 已通过 DevEco Studio 重新提交上述补充材料及 238 字符的申请原因；提交后重新打开能力管理，确认 Agent-powered reminder 显示“权限申请中”。回执截图保存在 `build/harmonyos/capability-application/04-resubmission-pending-20260929.png`。本次未重新生成签名文件，也未提交应用上架。
 
-审批通过后需更新签名 Profile、重新签名安装，并验证后台、锁屏、退出及进程被终止等场景。现有已安装包不代表后台代理提醒权限已生效。
+2026-09-30 14:00，补充申请（单号 `461323198988134433`）已审核通过，互动中心显示“对应能力已供您使用”。审核要求严格按申请约定的喂奶提醒场景使用。
+
+2026-09-30 已通过 DevEco 的“关联已注册应用”及能力管理确认“权限已开通”。普通保存曾复用不含能力的缓存 Profile；备份缓存后重新生成，已确认新 Profile 的 `app-services-capabilities` 包含 `com.huawei.service.notification.agentreminder`。因此该版本 DevEco 可以直接生成带获批能力的调试 Profile，不必仅依赖后台手动下载；`permissions` 或 `acls` 为空不能单独判定代理提醒能力缺失。
+
+新签名材料固定保存在本机忽略目录 `ohos/signing/device-debug-agent-20260930/`，本机 `ohos/build-profile.local.json5` 已更新引用；原签名材料与配置备份保留。虽新开发证书及公钥不同，实际 `hdc install` 已成功覆盖安装，未卸载应用。应用标识仍为 `6917617600915642674`。
+
+`tool/ohos.sh build hap --release` 已成功，产物为 `build/ohos_workspace/build/ohos/hap/entry-default-signed.hap`（26.2 MB），并安装到已连接真机。当前是带获批能力的调试签名，不是应用上架发布签名。后台、锁屏、划掉应用及进程被终止后的实际通知投递仍待真机验证；构建和安装成功不等于投递已验证。
 
 ## 源码核对位置
 

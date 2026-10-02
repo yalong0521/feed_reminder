@@ -10,11 +10,13 @@ import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
+import '../services/privacy_service.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
 import '../widgets/app_surface.dart';
+import 'privacy_policy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -503,6 +505,21 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ],
                       ),
                     ],
+                    _SettingsGroup(
+                      icon: CupertinoIcons.doc_text,
+                      title: '隐私政策',
+                      description: '了解记录如何保存，以及如何管理和删除数据。',
+                      children: [
+                        _PermissionRow(
+                          label: '阅读隐私政策',
+                          subtitle: PrivacyService.usesHostedPolicy
+                              ? '查看华为托管的隐私声明'
+                              : '无需联网，随时查看完整内容',
+                          icon: CupertinoIcons.doc_text,
+                          onPressed: () => showPrivacyPolicy(context),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ],

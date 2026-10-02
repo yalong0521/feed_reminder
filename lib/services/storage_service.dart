@@ -13,6 +13,8 @@ class StorageService {
     : _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
   static const _acknowledgedFeedKey = 'acknowledgedFeedTime';
+  static const _acceptedPrivacyPolicyVersionKey =
+      'acceptedPrivacyPolicyVersion';
   final Future<SharedPreferences> Function() _preferencesLoader;
   Future<SharedPreferences>? _preferences;
   Future<void> _writes = Future.value();
@@ -21,6 +23,13 @@ class StorageService {
   Future<void> init() async {
     await _prefsSafe;
   }
+
+  Future<String?> getAcceptedPrivacyPolicyVersion() async =>
+      (await _prefsSafe).getString(_acceptedPrivacyPolicyVersionKey);
+
+  Future<void> setAcceptedPrivacyPolicyVersion(String version) async => _write(
+    (prefs) => prefs.setString(_acceptedPrivacyPolicyVersionKey, version),
+  );
 
   Future<SharedPreferences> get _prefsSafe async {
     await _writes;
