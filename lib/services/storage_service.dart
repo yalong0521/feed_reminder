@@ -108,6 +108,20 @@ class StorageService {
     );
   }
 
+  Future<int> getDefaultMilkAmountMl() async {
+    final value = (await _prefsSafe).get(StorageKeys.defaultMilkAmountMl);
+    return value is int && FeedRecord.isValidMilkAmount(value)
+        ? value
+        : AppDefaults.defaultMilkAmountMl;
+  }
+
+  Future<void> setDefaultMilkAmountMl(int amount) async {
+    FeedRecord.validateMilkAmount(amount);
+    await _write(
+      (prefs) => prefs.setInt(StorageKeys.defaultMilkAmountMl, amount),
+    );
+  }
+
   Future<DateTime?> getLastFeedTime() async {
     final timestamp = (await _prefsSafe).getInt(StorageKeys.lastFeedTime);
     return timestamp == null

@@ -333,13 +333,40 @@ class FeedProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> recordFeed() => addFeedRecordWithTime(_clock());
+  Future<void> recordFeed({int milkAmountMl = 0}) =>
+      addFeedRecordWithTime(_clock(), milkAmountMl: milkAmountMl);
 
-  Future<void> addFeedRecordWithTime(DateTime time) {
+  Future<void> addFeedRecordWithTime(DateTime time, {int milkAmountMl = 0}) {
     if (time.isAfter(_clock())) {
       return Future.error(ArgumentError('不能选择未来的时间'));
     }
-    return _mutate(() => _repository.add(time));
+    if (!FeedRecord.isValidMilkAmount(milkAmountMl)) {
+      return Future.error(ArgumentError('奶量应为 0–2000 mL'));
+    }
+    return _mutate(() => _repository.add(time, milkAmountMl: milkAmountMl));
+  }
+
+  Future<void> updateFeedRecord(
+    String id, {
+    required DateTime time,
+    required int milkAmountMl,
+  }) {
+    if (!FeedRecord.isValidMilkAmount(milkAmountMl)) {
+      return Future.error(ArgumentError('奶量应为 0–2000 mL'));
+    }
+    return _mutate(() {
+      // Compare against the committed record after loading and earlier queued
+      // edits. A clock correction must not block an amount-only change, but a
+      // stale edit must not restore a future timestamp that was just corrected.
+      final current = feedHistory
+          .where((record) => record.id == id)
+          .firstOrNull;
+      final keepsTime = current != null && time.isAtSameMomentAs(current.time);
+      if (!keepsTime && time.isAfter(_clock())) {
+        throw ArgumentError('不能选择未来的时间');
+      }
+      return _repository.update(id, time: time, milkAmountMl: milkAmountMl);
+    });
   }
 
   Future<void> deleteFeedRecord(int index) {

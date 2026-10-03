@@ -25,6 +25,8 @@ class LandscapeFeedPanel extends StatelessWidget {
     required this.onBackfill,
     this.onHistory,
     this.pulseEnabled = true,
+    this.defaultMilkAmountMl = 0,
+    this.recordingEnabled = true,
   });
   final FeedProvider feed;
   final bool quiet;
@@ -34,6 +36,8 @@ class LandscapeFeedPanel extends StatelessWidget {
   final VoidCallback onBackfill;
   final VoidCallback? onHistory;
   final bool pulseEnabled;
+  final int defaultMilkAmountMl;
+  final bool recordingEnabled;
   bool get _alert => feed.state == FeedState.alerting;
   bool get _warning => feed.state == FeedState.warning;
   bool get _hasRecord => feed.lastFeedTime != null;
@@ -546,7 +550,12 @@ class LandscapeFeedPanel extends StatelessWidget {
             child: AppPressable(
               semanticLabel: '查看今日喂奶记录',
               onPressed: onHistory,
-              child: metric('今天', '${feed.todayRecords.length} 次'),
+              child: metric(
+                '今天',
+                '${feed.todayRecords.length} 次',
+                detail:
+                    '${feed.todayRecords.fold<int>(0, (sum, record) => sum + record.milkAmountMl)} mL 已记录',
+              ),
             ),
           ),
         ],
@@ -565,7 +574,8 @@ class LandscapeFeedPanel extends StatelessWidget {
             child: FeedButton(
               onPressed: onRecord,
               onUndo: onUndo,
-              enabled: feed.isInitialized && !feed.isSaving,
+              milkAmountMl: defaultMilkAmountMl,
+              enabled: recordingEnabled && feed.isInitialized && !feed.isSaving,
             ),
           ),
           SizedBox(width: landscape ? 22 : 12),

@@ -150,6 +150,7 @@ class AppStrings {
 class AppDefaults {
   static const ThemeMode themeMode = ThemeMode.system;
   static const int feedIntervalMinutes = 180;
+  static const int defaultMilkAmountMl = 0;
   static const bool nightModeEnabled = false;
   static const String nightStartTime = '22:00';
   static const String nightEndTime = '06:00';
@@ -162,6 +163,7 @@ class StorageKeys {
   static const String themeMode = 'themeMode';
   static const String lastFeedTime = 'lastFeedTime';
   static const String feedIntervalMinutes = 'feedIntervalMinutes';
+  static const String defaultMilkAmountMl = 'defaultMilkAmountMl';
   static const String nightModeEnabled = 'nightModeEnabled';
   static const String nightStartTime = 'nightStartTime';
   static const String nightEndTime = 'nightEndTime';

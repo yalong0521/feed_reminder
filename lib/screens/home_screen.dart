@@ -195,8 +195,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _recordFeed() async {
     _wake();
     final feed = context.read<FeedProvider>();
+    final settings = context.read<SettingsProvider>();
+    await settings.ready;
+    if (!mounted) return;
+    if (!settings.isAvailable) throw StateError('默认奶量尚未读取，请稍后重试');
     final previousIds = {for (final record in feed.feedHistory) record.id};
-    await feed.recordFeed();
+    await feed.recordFeed(milkAmountMl: settings.defaultMilkAmountMl);
     if (!mounted) return;
     // A corrected system clock can put this feeding before a saved record.
     // Undo follows the inserted identity, independently of chronological order.
@@ -247,6 +251,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 excluding: _dimmed || _wakeKey != null,
                 child: LandscapeFeedPanel(
                   feed: feed,
+                  defaultMilkAmountMl: settings.defaultMilkAmountMl,
+                  recordingEnabled: settings.isAvailable,
                   quiet: quiet,
                   pulseEnabled: widget.isActive && !_dimmed,
                   onRecord: _recordFeed,

@@ -18,6 +18,7 @@ import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
 import '../widgets/app_page_header.dart';
 import '../widgets/app_surface.dart';
+import '../widgets/milk_amount_field.dart';
 import 'privacy_policy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -167,6 +168,27 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
+  Future<void> _pickMilkAmount(SettingsProvider settings) async {
+    if (_editing || _saving || settings.isSaving || !settings.isAvailable) {
+      return;
+    }
+    _editing = true;
+    try {
+      final amount = await showCupertinoModalPopup<int>(
+        context: context,
+        builder: (context) => DefaultTextStyle(
+          style: AppTypography.body(context),
+          child: _MilkAmountEditor(initialValue: settings.defaultMilkAmountMl),
+        ),
+      );
+      if (amount != null && mounted) {
+        await _save(() => settings.setDefaultMilkAmountMl(amount));
+      }
+    } finally {
+      _editing = false;
+    }
+  }
+
   Future<void> _pickTime(
     String title,
     String value,
@@ -308,6 +330,24 @@ class _SettingsScreenState extends State<SettingsScreen>
                               onSelect: (minutes) => _save(
                                 () => settings.setFeedInterval(minutes),
                               ),
+                            ),
+                          ],
+                        ),
+                        _SettingsGroup(
+                          icon: CupertinoIcons.drop,
+                          title: '默认奶量',
+                          description: '每次记录时，自动带入常用奶量。',
+                          footer: '仅用于之后的新记录，不会改动历史奶量。每条记录仍可单独修改。',
+                          children: [
+                            _TimeControl(
+                              controlKey: const ValueKey('default-milk-amount'),
+                              label: settings.defaultMilkAmountMl == 0
+                                  ? '未设置 · 记录时记为 0'
+                                  : '每次喂养',
+                              value: '${settings.defaultMilkAmountMl} mL',
+                              onTap: busy || !settings.isAvailable
+                                  ? null
+                                  : () => _pickMilkAmount(settings),
                             ),
                           ],
                         ),
@@ -997,6 +1037,111 @@ class _PermissionRow extends StatelessWidget {
               color: colors.textTertiary,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MilkAmountEditor extends StatefulWidget {
+  const _MilkAmountEditor({required this.initialValue});
+  final int initialValue;
+
+  @override
+  State<_MilkAmountEditor> createState() => _MilkAmountEditorState();
+}
+
+class _MilkAmountEditorState extends State<_MilkAmountEditor> {
+  late final TextEditingController _controller;
+  String? _error;
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.initialValue}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _close([int? value]) {
+    if (_closing || ModalRoute.of(context)?.isCurrent != true) return;
+    _closing = true;
+    Navigator.of(context).pop(value);
+  }
+
+  void _submit() {
+    if (_closing) return;
+    final error = MilkAmountField.validate(_controller.text);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    _close(int.parse(_controller.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Align(
+          alignment: Alignment.center,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: SingleChildScrollView(
+              child: AppSurface(
+                radius: 24,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('设置默认奶量', style: AppTypography.dialogTitle(context)),
+                    const SizedBox(height: 10),
+                    Text(
+                      '新记录会自动带入这个奶量，历史记录保持原值。',
+                      style: AppTypography.supporting(context),
+                    ),
+                    const SizedBox(height: 24),
+                    MilkAmountField(
+                      controller: _controller,
+                      label: '每次喂养',
+                      errorText: _error,
+                      onSubmitted: _submit,
+                      onChanged: () {
+                        if (_error != null) setState(() => _error = null);
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        AppButton(onPressed: _close, child: const Text('取消')),
+                        AppButton(
+                          key: const ValueKey('save-default-milk-amount'),
+                          filled: true,
+                          onPressed: _submit,
+                          child: const Text('保存'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 
+import '../models/feed_record.dart';
 import '../services/storage_service.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
@@ -31,6 +32,7 @@ class SettingsProvider extends ChangeNotifier {
   String? get error => _error;
   ThemeMode get themeMode => _values.themeMode;
   int get feedIntervalMinutes => _values.feedIntervalMinutes;
+  int get defaultMilkAmountMl => _values.defaultMilkAmountMl;
   bool get nightModeEnabled => _values.nightModeEnabled;
   String get nightStartTime => _values.nightStartTime;
   String get nightEndTime => _values.nightEndTime;
@@ -43,6 +45,7 @@ class SettingsProvider extends ChangeNotifier {
       final values = _Settings(
         themeMode: await _storage.getThemeMode(),
         feedIntervalMinutes: await _storage.getFeedInterval(),
+        defaultMilkAmountMl: await _storage.getDefaultMilkAmountMl(),
         nightModeEnabled: await _storage.getNightModeEnabled(),
         nightStartTime: await _storage.getNightStartTime(),
         nightEndTime: await _storage.getNightEndTime(),
@@ -62,6 +65,8 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setFeedInterval(int minutes) =>
       updateSettings(feedIntervalMinutes: minutes);
+  Future<void> setDefaultMilkAmountMl(int amount) =>
+      updateSettings(defaultMilkAmountMl: amount);
   Future<void> setThemeMode(ThemeMode mode) => updateSettings(themeMode: mode);
   Future<void> setNightModeEnabled(bool enabled) =>
       updateSettings(nightModeEnabled: enabled);
@@ -79,6 +84,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> updateSettings({
     ThemeMode? themeMode,
     int? feedIntervalMinutes,
+    int? defaultMilkAmountMl,
     bool? nightModeEnabled,
     String? nightStartTime,
     String? nightEndTime,
@@ -87,6 +93,16 @@ class SettingsProvider extends ChangeNotifier {
     bool? burnInProtectionEnabled,
   }) {
     if (_disposed) return Future.value();
+    if (defaultMilkAmountMl != null &&
+        !FeedRecord.isValidMilkAmount(defaultMilkAmountMl)) {
+      return Future.error(
+        ArgumentError.value(
+          defaultMilkAmountMl,
+          'defaultMilkAmountMl',
+          '奶量应为 0–2000 mL',
+        ),
+      );
+    }
     if (feedIntervalMinutes != null && feedIntervalMinutes <= 0) {
       return Future.error(
         ArgumentError.value(feedIntervalMinutes, 'feedIntervalMinutes'),
@@ -109,6 +125,8 @@ class SettingsProvider extends ChangeNotifier {
             themeMode: themeMode ?? before.themeMode,
             feedIntervalMinutes:
                 feedIntervalMinutes ?? before.feedIntervalMinutes,
+            defaultMilkAmountMl:
+                defaultMilkAmountMl ?? before.defaultMilkAmountMl,
             nightModeEnabled: nightModeEnabled ?? before.nightModeEnabled,
             nightStartTime: nightStartTime ?? before.nightStartTime,
             nightEndTime: nightEndTime ?? before.nightEndTime,
@@ -122,6 +140,12 @@ class SettingsProvider extends ChangeNotifier {
           // Listeners immediately synchronize the countdown and reminder policy.
           _notify();
           try {
+            if (defaultMilkAmountMl != null) {
+              await _storage.setDefaultMilkAmountMl(defaultMilkAmountMl);
+              committed = committed.copyWith(
+                defaultMilkAmountMl: defaultMilkAmountMl,
+              );
+            }
             if (feedIntervalMinutes != null) {
               await _storage.setFeedInterval(feedIntervalMinutes);
               committed = committed.copyWith(
@@ -196,6 +220,7 @@ class _Settings {
   const _Settings({
     this.themeMode = AppDefaults.themeMode,
     this.feedIntervalMinutes = AppDefaults.feedIntervalMinutes,
+    this.defaultMilkAmountMl = AppDefaults.defaultMilkAmountMl,
     this.nightModeEnabled = AppDefaults.nightModeEnabled,
     this.nightStartTime = AppDefaults.nightStartTime,
     this.nightEndTime = AppDefaults.nightEndTime,
@@ -206,6 +231,7 @@ class _Settings {
 
   final ThemeMode themeMode;
   final int feedIntervalMinutes;
+  final int defaultMilkAmountMl;
   final bool nightModeEnabled;
   final String nightStartTime;
   final String nightEndTime;
@@ -216,6 +242,7 @@ class _Settings {
   _Settings copyWith({
     ThemeMode? themeMode,
     int? feedIntervalMinutes,
+    int? defaultMilkAmountMl,
     bool? nightModeEnabled,
     String? nightStartTime,
     String? nightEndTime,
@@ -225,6 +252,7 @@ class _Settings {
   }) => _Settings(
     themeMode: themeMode ?? this.themeMode,
     feedIntervalMinutes: feedIntervalMinutes ?? this.feedIntervalMinutes,
+    defaultMilkAmountMl: defaultMilkAmountMl ?? this.defaultMilkAmountMl,
     nightModeEnabled: nightModeEnabled ?? this.nightModeEnabled,
     nightStartTime: nightStartTime ?? this.nightStartTime,
     nightEndTime: nightEndTime ?? this.nightEndTime,

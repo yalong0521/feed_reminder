@@ -37,8 +37,26 @@ class FeedRepository {
     _records = normalize(history);
   }
 
-  Future<void> add(DateTime time) =>
-      _save([..._records, FeedRecord(time: time)]);
+  Future<void> add(DateTime time, {int milkAmountMl = 0}) async =>
+      _save([..._records, FeedRecord(time: time, milkAmountMl: milkAmountMl)]);
+
+  Future<void> update(
+    String id, {
+    required DateTime time,
+    required int milkAmountMl,
+  }) async {
+    if (!_records.any((record) => record.id == id)) {
+      throw StateError('这条记录已不存在，请刷新后重试');
+    }
+    final replacement = FeedRecord(
+      id: id,
+      time: time,
+      milkAmountMl: milkAmountMl,
+    );
+    await _save([
+      for (final record in _records) record.id == id ? replacement : record,
+    ]);
+  }
 
   Future<void> remove(FeedRecord record) =>
       _save(_records.where((item) => item.id != record.id).toList());
@@ -63,6 +81,7 @@ class FeedRepository {
         FeedRecord(
           id: ordered[index].id,
           time: ordered[index].time,
+          milkAmountMl: ordered[index].milkAmountMl,
           intervalFromPrevious: index + 1 < ordered.length
               ? ordered[index].time.difference(ordered[index + 1].time)
               : null,

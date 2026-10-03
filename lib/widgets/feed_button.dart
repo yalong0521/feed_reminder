@@ -13,11 +13,13 @@ class FeedButton extends StatefulWidget {
   final Future<void> Function() onPressed;
   final Future<void> Function()? onUndo;
   final bool enabled;
+  final int? milkAmountMl;
   const FeedButton({
     super.key,
     required this.onPressed,
     this.onUndo,
     this.enabled = true,
+    this.milkAmountMl,
   });
   @override
   State<FeedButton> createState() => _FeedButtonState();
@@ -347,7 +349,12 @@ class _FeedButtonState extends State<FeedButton>
                           enabled: _interactive,
                           excludeSemantics: true,
                           label: _failed ? '记录未保存，向右滑动重试' : '滑动记录这次喂奶',
-                          hint: '向右滑到底并松开确认。键盘按右方向键逐步推进，再按回车确认。',
+                          hint:
+                              '${widget.milkAmountMl == null
+                                  ? ''
+                                  : widget.milkAmountMl == 0
+                                  ? '本次暂不记录奶量。'
+                                  : '本次记录 ${widget.milkAmountMl} 毫升。'}向右滑到底并松开确认。键盘按右方向键逐步推进，再按回车确认。',
                           value:
                               '${_failed ? '未保存，' : ''}${(_progress.value * 100).round()}%',
                           increasedValue:
@@ -424,17 +431,52 @@ class _FeedButtonState extends State<FeedButton>
                                               .clamp(0, 1),
                                           child: FittedBox(
                                             fit: BoxFit.scaleDown,
-                                            child: Text(
-                                              _failed ? '未保存，右滑重试' : '滑动记录喂奶',
-                                              style: AppTypography.button
-                                                  .copyWith(
-                                                    color: colors.textSecondary
-                                                        .withValues(
-                                                          alpha: widget.enabled
-                                                              ? 1
-                                                              : .5,
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _failed
+                                                      ? '未保存，右滑重试'
+                                                      : '滑动记录喂奶',
+                                                  style: AppTypography.button
+                                                      .copyWith(
+                                                        color: colors
+                                                            .textSecondary
+                                                            .withValues(
+                                                              alpha:
+                                                                  widget.enabled
+                                                                  ? 1
+                                                                  : .5,
+                                                            ),
+                                                      ),
+                                                ),
+                                                if (widget.milkAmountMl !=
+                                                        null &&
+                                                    !_failed)
+                                                  Text(
+                                                    widget.milkAmountMl == 0
+                                                        ? '奶量未设置 · 可在设置中配置'
+                                                        : '本次 ${widget.milkAmountMl} mL',
+                                                    key: const ValueKey(
+                                                      'feed-default-milk-amount',
+                                                    ),
+                                                    style:
+                                                        AppTypography.caption(
+                                                          context,
+                                                        ).copyWith(
+                                                          fontSize: 12,
+                                                          color: colors
+                                                              .textSecondary
+                                                              .withValues(
+                                                                alpha:
+                                                                    widget
+                                                                        .enabled
+                                                                    ? 1
+                                                                    : .5,
+                                                              ),
                                                         ),
                                                   ),
+                                              ],
                                             ),
                                           ),
                                         ),

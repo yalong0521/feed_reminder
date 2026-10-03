@@ -2,15 +2,25 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/feed_record.dart';
 import '../providers/feed_provider.dart';
+import '../providers/settings_provider.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
 import 'app_surface.dart';
+import 'milk_amount_field.dart';
 
 class AddFeedRecordDialog extends StatefulWidget {
-  const AddFeedRecordDialog({super.key});
+  const AddFeedRecordDialog({
+    super.key,
+    this.record,
+    this.defaultMilkAmountMl = 0,
+  });
+
+  final FeedRecord? record;
+  final int defaultMilkAmountMl;
 
   @override
   State<AddFeedRecordDialog> createState() => _AddFeedRecordDialogState();
@@ -18,22 +28,33 @@ class AddFeedRecordDialog extends StatefulWidget {
 
 class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
   late DateTime _selectedDate;
+  late final TextEditingController _milkController;
   bool _saving = false;
   bool _picking = false;
   bool _closing = false;
   String? _error;
+  String? _milkError;
+
+  bool get _keepsRecordedTime =>
+      widget.record?.time.isAtSameMomentAs(_selectedDate) ?? false;
 
   @override
   void initState() {
     super.initState();
     final now = context.read<FeedProvider>().referenceTime;
-    _selectedDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute,
+    // Retain the original seconds and milliseconds for an amount-only edit.
+    _selectedDate =
+        widget.record?.time ??
+        DateTime(now.year, now.month, now.day, now.hour, now.minute);
+    _milkController = TextEditingController(
+      text: '${widget.record?.milkAmountMl ?? widget.defaultMilkAmountMl}',
     );
+  }
+
+  @override
+  void dispose() {
+    _milkController.dispose();
+    super.dispose();
   }
 
   Future<void> _pick({required bool date}) async {
@@ -85,13 +106,18 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
   Future<void> _save() async {
     final provider = context.read<FeedProvider>();
     if (_saving || _picking || _closing || provider.isSaving) return;
-    if (_selectedDate.isAfter(provider.referenceTime)) {
+    final milkError = MilkAmountField.validate(_milkController.text);
+    if (milkError != null) {
+      setState(() => _milkError = milkError);
+      return;
+    }
+    if (!_keepsRecordedTime && _selectedDate.isAfter(provider.referenceTime)) {
       // The clock can move between the enabled button's build and its tap.
       // Future-time errors are derived below so they expire with validity.
       setState(() => _error = null);
       return;
     }
-    if (_selectedDate.isBefore(DateTime(2020))) {
+    if (!_keepsRecordedTime && _selectedDate.isBefore(DateTime(2020))) {
       setState(() => _error = '请选择 2020 年以后的日期');
       return;
     }
@@ -100,7 +126,19 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
       _error = null;
     });
     try {
-      await provider.addFeedRecordWithTime(_selectedDate);
+      final amount = int.parse(_milkController.text);
+      if (widget.record case final record?) {
+        await provider.updateFeedRecord(
+          record.id,
+          time: _selectedDate,
+          milkAmountMl: amount,
+        );
+      } else {
+        await provider.addFeedRecordWithTime(
+          _selectedDate,
+          milkAmountMl: amount,
+        );
+      }
       if (!mounted) return;
       setState(() => _saving = false);
       _close(true);
@@ -129,7 +167,9 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
     final validity = context.select<FeedProvider, ({bool saving, bool future})>(
       (provider) => (
         saving: provider.isSaving,
-        future: _selectedDate.isAfter(provider.referenceTime),
+        future:
+            !_keepsRecordedTime &&
+            _selectedDate.isAfter(provider.referenceTime),
       ),
     );
     final isFuture = validity.future;
@@ -153,6 +193,29 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
       compact: compact,
       onTap: disabled ? null : () => _pick(date: false),
     );
+    final dateTimeFields = IntrinsicHeight(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: dateField),
+          SizedBox(height: compact ? 12 : 16),
+          Expanded(child: timeField),
+        ],
+      ),
+    );
+    final milkField = MilkAmountField(
+      controller: _milkController,
+      enabled: !disabled,
+      errorText: _milkError,
+      onSubmitted: _save,
+      onChanged: () {
+        if (_milkError != null) setState(() => _milkError = null);
+      },
+    );
+    final sideBySide =
+        compact &&
+        size.width >= 700 &&
+        MediaQuery.textScalerOf(context).scale(16) <= 22;
 
     return PopScope(
       canPop: !_saving,
@@ -162,7 +225,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
         elevation: 0,
         insetPadding: EdgeInsets.all(compact ? 20 : 24),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: compact ? 620 : 460),
+          constraints: BoxConstraints(maxWidth: sideBySide ? 740 : 460),
           child: AppSurface(
             key: const ValueKey('add-feed-record-surface'),
             radius: 24,
@@ -177,7 +240,9 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     children: [
                       Expanded(
                         child: Text(
-                          AppStrings.addFeedTitle,
+                          widget.record == null
+                              ? AppStrings.addFeedTitle
+                              : '修改喂奶记录',
                           style: AppTypography.dialogTitle(context),
                         ),
                       ),
@@ -186,24 +251,26 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                   if (!compact) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '补上实际喂奶的日期与时间。',
+                      widget.record == null ? '补上实际喂奶的时间与奶量。' : '按实际情况调整时间或奶量。',
                       style: AppTypography.supporting(context),
                     ),
                   ],
                   SizedBox(height: compact ? 16 : 24),
-                  // Both layouts share the taller field's content height.
-                  IntrinsicHeight(
-                    child: Flex(
-                      direction: compact ? Axis.horizontal : Axis.vertical,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                  if (sideBySide)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: dateField),
-                        const SizedBox(width: 16, height: 16),
-                        Expanded(child: timeField),
+                        Expanded(child: dateTimeFields),
+                        const SizedBox(width: 24),
+                        Expanded(flex: 2, child: milkField),
                       ],
-                    ),
-                  ),
-                  SizedBox(height: compact ? 8 : 16),
+                    )
+                  else ...[
+                    dateTimeFields,
+                    const SizedBox(height: 24),
+                    milkField,
+                  ],
+                  SizedBox(height: compact ? 12 : 16),
                   if (error != null)
                     Semantics(
                       liveRegion: true,
@@ -230,23 +297,26 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                         ),
                       ),
                     ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        CupertinoIcons.info_circle,
-                        color: colors.textSecondary,
-                        size: 17,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '补记会按时间排序，倒计时以最新一次喂奶为准。',
-                          style: AppTypography.caption(context),
+                  if (!compact)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          CupertinoIcons.info_circle,
+                          color: colors.textSecondary,
+                          size: 17,
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            widget.record == null
+                                ? '补记会按时间排序，倒计时以最新一次喂奶为准。'
+                                : '只修改奶量不会改变计时；修改时间后会重新排序。',
+                            style: AppTypography.caption(context),
+                          ),
+                        ),
+                      ],
+                    ),
                   SizedBox(height: compact ? 12 : 24),
                   LayoutBuilder(
                     builder: (context, constraints) {
@@ -263,7 +333,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                             ? CupertinoActivityIndicator(
                                 color: colors.onPrimary,
                               )
-                            : const Text('保存记录'),
+                            : Text(widget.record == null ? '保存记录' : '保存修改'),
                       );
                       if (constraints.maxWidth < 300 &&
                           MediaQuery.textScalerOf(context).scale(16) > 20) {
@@ -373,15 +443,52 @@ class _PickerField extends StatelessWidget {
 
 final _activeBackfillDialogs = Expando<Future<bool?>>('Active backfill dialog');
 
-Future<bool?> showAddFeedRecordDialog(BuildContext navigatorContext) async {
+Future<bool?> showAddFeedRecordDialog(
+  BuildContext navigatorContext, {
+  FeedRecord? record,
+}) async {
   final navigator = Navigator.of(navigatorContext, rootNavigator: true);
   final active = _activeBackfillDialogs[navigator];
   if (active != null) return active;
   final provider = navigatorContext.read<FeedProvider>();
-  final pending = showGeneralDialog<bool>(
+  final settings = navigatorContext.read<SettingsProvider?>();
+  final pending = _openFeedRecordDialog(
+    navigatorContext,
+    provider,
+    settings,
+    record,
+  );
+  // The lock also covers asynchronous preference loading before the dialog.
+  _activeBackfillDialogs[navigator] = pending;
+  try {
+    return await pending;
+  } finally {
+    if (identical(_activeBackfillDialogs[navigator], pending)) {
+      _activeBackfillDialogs[navigator] = null;
+    }
+  }
+}
+
+Future<bool?> _openFeedRecordDialog(
+  BuildContext navigatorContext,
+  FeedProvider provider,
+  SettingsProvider? settings,
+  FeedRecord? record,
+) async {
+  if (record == null && settings != null) {
+    await settings.ready;
+    if (!navigatorContext.mounted) return null;
+    if (!settings.isAvailable) {
+      showAppNotice(navigatorContext, '默认奶量设置未能读取，请重新打开应用后重试。');
+      return false;
+    }
+  }
+  if (!navigatorContext.mounted) return null;
+  final defaultAmount = settings?.defaultMilkAmountMl ?? 0;
+  return showGeneralDialog<bool>(
     context: navigatorContext,
     barrierDismissible: true,
-    barrierLabel: '关闭补记',
+    barrierLabel: record == null ? '关闭补记' : '关闭修改',
     barrierColor: Colors.black.withValues(alpha: .3),
     transitionDuration: Duration(
       milliseconds: MediaQuery.disableAnimationsOf(navigatorContext) ? 0 : 220,
@@ -398,15 +505,10 @@ Future<bool?> showAddFeedRecordDialog(BuildContext navigatorContext) async {
     pageBuilder: (dialogContext, animation, secondary) =>
         ChangeNotifierProvider.value(
           value: provider,
-          child: const AddFeedRecordDialog(),
+          child: AddFeedRecordDialog(
+            record: record,
+            defaultMilkAmountMl: defaultAmount,
+          ),
         ),
   );
-  _activeBackfillDialogs[navigator] = pending;
-  try {
-    return await pending;
-  } finally {
-    if (identical(_activeBackfillDialogs[navigator], pending)) {
-      _activeBackfillDialogs[navigator] = null;
-    }
-  }
 }

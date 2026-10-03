@@ -11,6 +11,7 @@ import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
 import '../widgets/app_page_header.dart';
+import 'statistics_screen.dart';
 
 typedef _HistorySnapshot = ({
   List<FeedRecord> records,
@@ -120,7 +121,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
             // record gets its own sliver child, even for a large single day.
             final entries = <_HistoryEntry>[
               for (final day in days) ...[
-                _HistoryEntry.header(day, groups[day]!.length),
+                _HistoryEntry.header(
+                  day,
+                  groups[day]!.length,
+                  groups[day]!.fold(
+                    0,
+                    (sum, record) => sum + record.milkAmountMl,
+                  ),
+                ),
                 for (final record in groups[day]!) _HistoryEntry.item(record),
               ],
             ];
@@ -151,6 +159,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           compact: compact,
                           saving: snapshot.saving,
                           onAdd: () => showAddFeedRecordDialog(context),
+                          onStatistics: () => Navigator.of(context).push<void>(
+                            CupertinoPageRoute(
+                              builder: (_) => const StatisticsScreen(),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -214,6 +227,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               date: entry.day!,
                               referenceTime: snapshot.day,
                               count: entry.count,
+                              milkAmountMl: entry.milkAmountMl,
                               compact: compact,
                             );
                           }
@@ -229,6 +243,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               isLatest: record.id == records.first.id,
                               saving: snapshot.saving,
                               compact: compact,
+                              onEdit: () => showAddFeedRecordDialog(
+                                context,
+                                record: record,
+                              ),
                               onDelete: () => _deleteRecord(record),
                             ),
                           );
@@ -293,11 +311,13 @@ class _HistoryHeader extends StatelessWidget {
     required this.compact,
     required this.saving,
     required this.onAdd,
+    required this.onStatistics,
   });
 
   final bool compact;
   final bool saving;
   final VoidCallback onAdd;
+  final VoidCallback onStatistics;
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +343,26 @@ class _HistoryHeader extends StatelessWidget {
       title: AppStrings.history,
       subtitle: '把每一次照顾，留在时间里。',
       compact: compact,
-      trailing: add,
+      trailing: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          AppButton(
+            key: const ValueKey('history-statistics-button'),
+            compact: true,
+            onPressed: onStatistics,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(CupertinoIcons.chart_bar, size: 18),
+                SizedBox(width: 7),
+                Text('奶量统计'),
+              ],
+            ),
+          ),
+          add,
+        ],
+      ),
     );
   }
 }
@@ -441,11 +480,16 @@ class _CountSummary extends StatelessWidget {
 }
 
 class _HistoryEntry {
-  const _HistoryEntry.header(this.day, this.count) : record = null;
-  const _HistoryEntry.item(this.record) : day = null, count = 0;
+  const _HistoryEntry.header(this.day, this.count, this.milkAmountMl)
+    : record = null;
+  const _HistoryEntry.item(this.record)
+    : day = null,
+      count = 0,
+      milkAmountMl = 0;
 
   final DateTime? day;
   final int count;
+  final int milkAmountMl;
   final FeedRecord? record;
 }
 
@@ -493,12 +537,14 @@ class _DayHeader extends StatelessWidget {
     required this.date,
     required this.referenceTime,
     required this.count,
+    required this.milkAmountMl,
     required this.compact,
   });
 
   final DateTime date;
   final DateTime referenceTime;
   final int count;
+  final int milkAmountMl;
   final bool compact;
 
   @override
@@ -514,19 +560,33 @@ class _DayHeader extends StatelessWidget {
         ? '昨天 · '
         : '';
 
+    final heading = Text(
+      '$relative${_fullDate(date)}',
+      style: AppTypography.sectionTitle(context),
+    );
+    final summary = Text(
+      '$count 条 · $milkAmountMl mL',
+      style: AppTypography.caption(context),
+    );
     return Padding(
       padding: EdgeInsets.only(bottom: compact ? 8 : 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '$relative${_fullDate(date)}',
-              style: AppTypography.sectionTitle(context),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text('$count 条', style: AppTypography.caption(context)),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 420 ||
+              MediaQuery.textScalerOf(context).scale(16) > 22) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [heading, const SizedBox(height: 4), summary],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: heading),
+              const SizedBox(width: 12),
+              summary,
+            ],
+          );
+        },
       ),
     );
   }
@@ -538,6 +598,7 @@ class _RecordRow extends StatelessWidget {
     required this.isLatest,
     required this.saving,
     required this.compact,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -545,6 +606,7 @@ class _RecordRow extends StatelessWidget {
   final bool isLatest;
   final bool saving;
   final bool compact;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -590,14 +652,38 @@ class _RecordRow extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 5),
-                  Text(
-                    _intervalLabel(record.intervalFromPrevious),
-                    style: AppTypography.caption(context),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 3,
+                    children: [
+                      Text(
+                        record.milkAmountMl == 0
+                            ? '0 mL · 未记录'
+                            : '${record.milkAmountMl} mL',
+                        style: AppTypography.supporting(context).copyWith(
+                          color: record.milkAmountMl > 0
+                              ? colors.textPrimary
+                              : colors.textSecondary,
+                        ),
+                      ),
+                      Text(
+                        _intervalLabel(record.intervalFromPrevious),
+                        style: AppTypography.caption(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
+            AppButton(
+              key: ValueKey('edit-record-${record.id}'),
+              surface: false,
+              padding: const EdgeInsets.all(12),
+              semanticLabel: '修改 ${TimeUtils.formatTime(record.time)} 的记录',
+              onPressed: saving ? null : onEdit,
+              child: const Icon(CupertinoIcons.pencil, size: 18),
+            ),
             AppButton(
               key: ValueKey('delete-record-${record.id}'),
               surface: false,
