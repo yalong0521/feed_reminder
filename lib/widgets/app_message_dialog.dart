@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import 'app_surface.dart';
 
@@ -72,12 +73,7 @@ class AppMessageDialog extends StatelessWidget {
                                   Expanded(
                                     child: Text(
                                       title,
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        height: 1.4,
-                                        fontWeight: FontWeight.w500,
-                                        color: colors.textPrimary,
-                                      ),
+                                      style: AppTypography.dialogTitle(context),
                                     ),
                                   ),
                                 ],
@@ -89,11 +85,9 @@ class AppMessageDialog extends StatelessWidget {
                             ],
                             const SizedBox(height: 12),
                             DefaultTextStyle.merge(
-                              style: TextStyle(
-                                color: colors.textSecondary,
-                                fontSize: 15,
-                                height: 1.6,
-                              ),
+                              style: AppTypography.body(
+                                context,
+                              ).copyWith(color: colors.textSecondary),
                               child: content,
                             ),
                           ],

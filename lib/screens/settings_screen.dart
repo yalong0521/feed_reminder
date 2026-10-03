@@ -11,10 +11,12 @@ import '../providers/settings_provider.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 import '../services/privacy_service.dart';
+import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
+import '../widgets/app_page_header.dart';
 import '../widgets/app_surface.dart';
 import 'privacy_policy_screen.dart';
 
@@ -153,10 +155,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       final minutes = await showCupertinoModalPopup<int>(
         context: context,
         builder: (context) => DefaultTextStyle(
-          style: TextStyle(
-            fontSize: 16,
-            color: AppPalette.of(context).textPrimary,
-          ),
+          style: AppTypography.body(context),
           child: _IntervalEditor(initialValue: settings.feedIntervalMinutes),
         ),
       );
@@ -238,6 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Future<void> _openPermissionSettings(Future<void> Function() action) async {
+    if (_permissionBusy) return;
     setState(() => _permissionBusy = true);
     try {
       await action();
@@ -260,282 +260,296 @@ class _SettingsScreenState extends State<SettingsScreen>
     final compact = _compactSettingsLayout(context);
     return SafeArea(
       bottom: false,
-      child: SingleChildScrollView(
-        key: const PageStorageKey('settings-scroll'),
-        padding: EdgeInsets.fromLTRB(24, compact ? 18 : 32, 24, 40),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1120),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SettingsHeader(compact: compact, saving: busy),
-                if (settings.error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    '设置未能完整读取或保存，请重试；若仍失败，请重新打开应用。',
-                    style: TextStyle(
-                      color: colors.alert,
-                      fontSize: 13,
-                      height: 1.6,
-                    ),
-                  ),
-                ],
-                SizedBox(height: compact ? 22 : 36),
-                _SettingsGrid(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontalPadding = AppPageLayout.contentPadding(
+            constraints.maxWidth,
+          );
+          return SingleChildScrollView(
+            key: const PageStorageKey('settings-scroll'),
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              AppPageLayout.topPadding(compact),
+              horizontalPadding,
+              40,
+            ),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: AppPageLayout.maxContentWidth,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _SettingsGroup(
-                      icon: CupertinoIcons.clock,
-                      title: '喂奶间隔',
-                      description: '下一次提醒，从最近一次喂奶开始计算。',
+                    _SettingsHeader(compact: compact, saving: busy),
+                    if (settings.error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '设置未能完整读取或保存，请重试；若仍失败，请重新打开应用。',
+                        style: AppTypography.supporting(
+                          context,
+                        ).copyWith(color: colors.alert),
+                      ),
+                    ],
+                    SizedBox(height: AppPageLayout.headerGap(compact)),
+                    _SettingsGrid(
                       children: [
-                        _IntervalPreference(
-                          minutes: settings.feedIntervalMinutes,
-                          busy: busy,
-                          onCustom: () => _pickInterval(settings),
-                          onSelect: (minutes) =>
-                              _save(() => settings.setFeedInterval(minutes)),
-                        ),
-                      ],
-                    ),
-                    _SettingsGroup(
-                      icon: CupertinoIcons.moon_stars,
-                      title: '夜间时段',
-                      description: '保留屏幕提醒，把安静留给夜晚。',
-                      footer: settings.nightStartTime == settings.nightEndTime
-                          ? '开始与结束时间相同，当前不会进入夜间静音。'
-                          : '支持跨越午夜，例如 22:00 至次日 06:00。',
-                      children: [
-                        _ToggleRow(
-                          controlKey: const ValueKey('night-mode-switch'),
-                          title: '夜间静音',
-                          subtitle: '关闭声音和系统通知',
-                          value: settings.nightModeEnabled,
-                          onChanged: busy
-                              ? null
-                              : (value) => _save(
-                                  () => settings.setNightModeEnabled(value),
-                                ),
-                        ),
-                        const _GroupSeparator(),
-                        _TimeControl(
-                          controlKey: const ValueKey('night-start-time'),
-                          label: '开始时间',
-                          value: settings.nightStartTime,
-                          onTap: busy || !settings.nightModeEnabled
-                              ? null
-                              : () => _pickTime(
-                                  '开始时间',
-                                  settings.nightStartTime,
-                                  settings.setNightStartTime,
-                                ),
-                        ),
-                        const _GroupSeparator(),
-                        _TimeControl(
-                          controlKey: const ValueKey('night-end-time'),
-                          label: '结束时间',
-                          value: settings.nightEndTime,
-                          onTap: busy || !settings.nightModeEnabled
-                              ? null
-                              : () => _pickTime(
-                                  '结束时间',
-                                  settings.nightEndTime,
-                                  settings.setNightEndTime,
-                                ),
-                        ),
-                      ],
-                    ),
-                    _SettingsGroup(
-                      icon: CupertinoIcons.bell,
-                      title: '提醒声音',
-                      description: '用声音提醒，或只看一眼计时。',
-                      footer: '试听仅播放一次；夜间静音不影响试听。',
-                      children: [
-                        _ToggleRow(
-                          controlKey: const ValueKey('sound-enabled-switch'),
-                          title: '声音提醒',
-                          subtitle: '到达设定时间时播放提醒音',
-                          value: settings.soundEnabled,
-                          onChanged: busy
-                              ? null
-                              : (value) async {
-                                  if (!value) await _stopPreview();
-                                  if (mounted) {
-                                    await _save(
-                                      () => settings.setSoundEnabled(value),
-                                    );
-                                  }
-                                },
-                        ),
-                        const _GroupSeparator(),
-                        _ToggleRow(
-                          controlKey: const ValueKey('sound-loop-switch'),
-                          title: '循环播放',
-                          subtitle: settings.soundEnabled
-                              ? '应用运行时，持续播放至停止或记录喂奶'
-                              : '开启声音提醒后可设置',
-                          value: settings.soundLoopEnabled,
-                          onChanged: busy || !settings.soundEnabled
-                              ? null
-                              : (value) => _save(
-                                  () => settings.setSoundLoopEnabled(value),
-                                ),
-                        ),
-                        const _GroupSeparator(),
-                        AppButton(
-                          key: const ValueKey('sound-preview-button'),
-                          compact: true,
-                          radius: 6,
-                          onPressed: _audioBusy || !settings.soundEnabled
-                              ? null
-                              : _togglePreview,
-                          child: _ActionLabel(
-                            icon: _previewing
-                                ? CupertinoIcons.stop_fill
-                                : CupertinoIcons.play_fill,
-                            label: _previewing ? '停止试听' : '试听提醒音',
-                          ),
-                        ),
-                      ],
-                    ),
-                    _SettingsGroup(
-                      icon: CupertinoIcons.device_phone_portrait,
-                      title: '屏幕与外观',
-                      description: '白天清晰，入夜柔和。',
-                      footer: '有喂奶记录且停留在计时页时，屏幕会保持常亮。切换页面或退出应用后恢复系统设置。',
-                      children: [
-                        Text(
-                          '外观主题',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
+                        _SettingsGroup(
+                          icon: CupertinoIcons.clock,
+                          separated: false,
+                          title: '喂奶间隔',
+                          description: '下一次提醒，从最近一次喂奶开始计算。',
                           children: [
-                            for (final option in const [
-                              (
-                                ThemeMode.system,
-                                '跟随系统',
-                                CupertinoIcons.circle_lefthalf_fill,
+                            _IntervalPreference(
+                              minutes: settings.feedIntervalMinutes,
+                              busy: busy,
+                              onCustom: () => _pickInterval(settings),
+                              onSelect: (minutes) => _save(
+                                () => settings.setFeedInterval(minutes),
                               ),
-                              (ThemeMode.light, '浅色', CupertinoIcons.sun_max),
-                              (ThemeMode.dark, '深色', CupertinoIcons.moon),
-                            ])
-                              _PreferenceOption(
-                                controlKey: ValueKey(
-                                  'theme-mode-${option.$1.name}',
-                                ),
-                                label: option.$2,
-                                icon: option.$3,
-                                selected: settings.themeMode == option.$1,
-                                onPressed: busy
-                                    ? null
-                                    : () => _save(
-                                        () => settings.setThemeMode(option.$1),
-                                      ),
-                              ),
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          '默认跟随系统；选择浅色或深色后，将保持所选外观。',
-                          style: _hintStyle(context),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '外观与夜间静音独立；待机时使用暗色时钟。',
-                          style: _hintStyle(context),
-                        ),
-                        const _GroupSeparator(),
-                        _ToggleRow(
-                          controlKey: const ValueKey('burn-in-switch'),
-                          title: '防烧屏保护',
-                          subtitle: '轻微移动计时内容，减少固定像素长亮',
-                          value: settings.burnInProtectionEnabled,
-                          onChanged: busy
-                              ? null
-                              : (value) => _save(
-                                  () => settings.setBurnInProtectionEnabled(
-                                    value,
-                                  ),
-                                ),
-                        ),
-                      ],
-                    ),
-                    if (notifications.isSupported) ...[
-                      _SettingsGroup(
-                        icon: CupertinoIcons.checkmark_shield,
-                        title: '系统提醒权限',
-                        description: '离开应用后，也能收到下一次提醒。',
-                        footer: defaultTargetPlatform == TargetPlatform.android
-                            ? '未授权准时提醒时，系统可能延迟发送通知。'
-                            : notifications.isHarmonyOS
-                            ? '鸿蒙静音提醒默认仅显示在通知中心，后台声音以系统通知设置为准。'
-                            : null,
-                        children: [
-                          _PermissionRow(
-                            label: '系统通知权限',
-                            subtitle: '前往系统通知设置',
-                            icon: CupertinoIcons.bell,
-                            onPressed: _permissionBusy
-                                ? null
-                                : () => _openPermissionSettings(
-                                    _openNotificationSettings,
-                                  ),
-                          ),
-                          if (defaultTargetPlatform ==
-                              TargetPlatform.android) ...[
-                            const _GroupSeparator(),
-                            _PermissionRow(
-                              label: '准时提醒权限',
-                              icon: CupertinoIcons.alarm,
-                              onPressed: _permissionBusy
+                        _SettingsGroup(
+                          icon: CupertinoIcons.moon_stars,
+                          title: '夜间时段',
+                          description: '保留屏幕提醒，把安静留给夜晚。',
+                          footer:
+                              settings.nightStartTime == settings.nightEndTime
+                              ? '开始与结束时间相同，当前不会进入夜间静音。'
+                              : '支持跨越午夜，例如 22:00 至次日 06:00。',
+                          children: [
+                            _ToggleRow(
+                              controlKey: const ValueKey('night-mode-switch'),
+                              title: '夜间静音',
+                              subtitle: '关闭声音和系统通知',
+                              value: settings.nightModeEnabled,
+                              onChanged: busy
                                   ? null
-                                  : () => _openPermissionSettings(
-                                      notifications.requestExactAlarmPermission,
+                                  : (value) => _save(
+                                      () => settings.setNightModeEnabled(value),
+                                    ),
+                            ),
+                            const _GroupSeparator(),
+                            _TimeControl(
+                              controlKey: const ValueKey('night-start-time'),
+                              label: '开始时间',
+                              value: settings.nightStartTime,
+                              onTap: busy || !settings.nightModeEnabled
+                                  ? null
+                                  : () => _pickTime(
+                                      '开始时间',
+                                      settings.nightStartTime,
+                                      settings.setNightStartTime,
+                                    ),
+                            ),
+                            const _GroupSeparator(),
+                            _TimeControl(
+                              controlKey: const ValueKey('night-end-time'),
+                              label: '结束时间',
+                              value: settings.nightEndTime,
+                              onTap: busy || !settings.nightModeEnabled
+                                  ? null
+                                  : () => _pickTime(
+                                      '结束时间',
+                                      settings.nightEndTime,
+                                      settings.setNightEndTime,
                                     ),
                             ),
                           ],
+                        ),
+                        _SettingsGroup(
+                          icon: CupertinoIcons.bell,
+                          title: '提醒声音',
+                          description: '用声音提醒，或只看一眼计时。',
+                          footer: '试听仅播放一次；夜间静音不影响试听。',
+                          children: [
+                            _ToggleRow(
+                              controlKey: const ValueKey(
+                                'sound-enabled-switch',
+                              ),
+                              title: '声音提醒',
+                              subtitle: '到达设定时间时播放提醒音',
+                              value: settings.soundEnabled,
+                              onChanged: busy
+                                  ? null
+                                  : (value) async {
+                                      if (!value) await _stopPreview();
+                                      if (mounted) {
+                                        await _save(
+                                          () => settings.setSoundEnabled(value),
+                                        );
+                                      }
+                                    },
+                            ),
+                            const _GroupSeparator(),
+                            _ToggleRow(
+                              controlKey: const ValueKey('sound-loop-switch'),
+                              title: '循环播放',
+                              subtitle: settings.soundEnabled
+                                  ? '应用运行时，持续播放至停止或记录喂奶'
+                                  : '开启声音提醒后可设置',
+                              value: settings.soundLoopEnabled,
+                              onChanged: busy || !settings.soundEnabled
+                                  ? null
+                                  : (value) => _save(
+                                      () => settings.setSoundLoopEnabled(value),
+                                    ),
+                            ),
+                            const _GroupSeparator(),
+                            AppButton(
+                              key: const ValueKey('sound-preview-button'),
+                              compact: true,
+                              onPressed: _audioBusy || !settings.soundEnabled
+                                  ? null
+                                  : _togglePreview,
+                              child: _ActionLabel(
+                                icon: _previewing
+                                    ? CupertinoIcons.stop_fill
+                                    : CupertinoIcons.play_fill,
+                                label: _previewing ? '停止试听' : '试听提醒音',
+                              ),
+                            ),
+                          ],
+                        ),
+                        _SettingsGroup(
+                          icon: CupertinoIcons.device_phone_portrait,
+                          title: '屏幕与外观',
+                          description: '白天清晰，入夜柔和。',
+                          footer: '有喂奶记录且停留在计时页时，屏幕会保持常亮。切换页面或退出应用后恢复系统设置。',
+                          children: [
+                            Text('外观主题', style: AppTypography.label(context)),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                for (final option in const [
+                                  (
+                                    ThemeMode.system,
+                                    '跟随系统',
+                                    CupertinoIcons.circle_lefthalf_fill,
+                                  ),
+                                  (
+                                    ThemeMode.light,
+                                    '浅色',
+                                    CupertinoIcons.sun_max,
+                                  ),
+                                  (ThemeMode.dark, '深色', CupertinoIcons.moon),
+                                ])
+                                  _PreferenceOption(
+                                    controlKey: ValueKey(
+                                      'theme-mode-${option.$1.name}',
+                                    ),
+                                    label: option.$2,
+                                    icon: option.$3,
+                                    selected: settings.themeMode == option.$1,
+                                    onPressed: busy
+                                        ? null
+                                        : () => _save(
+                                            () => settings.setThemeMode(
+                                              option.$1,
+                                            ),
+                                          ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '默认跟随系统；选择浅色或深色后，将保持所选外观。',
+                              style: _hintStyle(context),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '外观与夜间静音独立；待机时使用暗色时钟。',
+                              style: _hintStyle(context),
+                            ),
+                            const _GroupSeparator(),
+                            _ToggleRow(
+                              controlKey: const ValueKey('burn-in-switch'),
+                              title: '防烧屏保护',
+                              subtitle: '轻微移动计时内容，减少固定像素长亮',
+                              value: settings.burnInProtectionEnabled,
+                              onChanged: busy
+                                  ? null
+                                  : (value) => _save(
+                                      () => settings.setBurnInProtectionEnabled(
+                                        value,
+                                      ),
+                                    ),
+                            ),
+                          ],
+                        ),
+                        if (notifications.isSupported) ...[
+                          _SettingsGroup(
+                            icon: CupertinoIcons.checkmark_shield,
+                            title: '系统提醒权限',
+                            description: '离开应用后，也能收到下一次提醒。',
+                            footer:
+                                defaultTargetPlatform == TargetPlatform.android
+                                ? '未授权准时提醒时，系统可能延迟发送通知。'
+                                : notifications.isHarmonyOS
+                                ? '鸿蒙静音提醒默认仅显示在通知中心，后台声音以系统通知设置为准。'
+                                : null,
+                            children: [
+                              _PermissionRow(
+                                label: '系统通知权限',
+                                subtitle: '前往系统通知设置',
+                                icon: CupertinoIcons.bell,
+                                onPressed: _permissionBusy
+                                    ? null
+                                    : () => _openPermissionSettings(
+                                        _openNotificationSettings,
+                                      ),
+                              ),
+                              if (defaultTargetPlatform ==
+                                  TargetPlatform.android) ...[
+                                const _GroupSeparator(),
+                                _PermissionRow(
+                                  label: '准时提醒权限',
+                                  icon: CupertinoIcons.alarm,
+                                  onPressed: _permissionBusy
+                                      ? null
+                                      : () => _openPermissionSettings(
+                                          notifications
+                                              .requestExactAlarmPermission,
+                                        ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ],
-                      ),
-                    ],
-                    _SettingsGroup(
-                      icon: CupertinoIcons.doc_text,
-                      title: '隐私政策',
-                      description: '了解记录如何保存，以及如何管理和删除数据。',
-                      children: [
-                        _PermissionRow(
-                          label: '阅读隐私政策',
-                          subtitle: PrivacyService.usesHostedPolicy
-                              ? '查看华为托管的隐私声明'
-                              : '无需联网，随时查看完整内容',
+                        _SettingsGroup(
                           icon: CupertinoIcons.doc_text,
-                          onPressed: () => showPrivacyPolicy(context),
+                          title: '隐私政策',
+                          description: '了解记录如何保存，以及如何管理和删除数据。',
+                          children: [
+                            _PermissionRow(
+                              label: '阅读隐私政策',
+                              subtitle: PrivacyService.usesHostedPolicy
+                                  ? '查看华为托管的隐私声明'
+                                  : '无需联网，随时查看完整内容',
+                              icon: CupertinoIcons.doc_text,
+                              onPressed: () => showPrivacyPolicy(context),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 }
 
 bool _compactSettingsLayout(BuildContext context) {
-  final size = MediaQuery.sizeOf(context);
-  return size.width > size.height &&
-      size.height < 600 &&
-      MediaQuery.textScalerOf(context).scale(14) <= 20;
+  return AppPageLayout.compact(context);
 }
 
 class _SettingsHeader extends StatelessWidget {
@@ -555,50 +569,18 @@ class _SettingsHeader extends StatelessWidget {
           Icon(CupertinoIcons.checkmark, size: 13, color: colors.textSecondary),
         const SizedBox(width: 7),
         Flexible(
-          child: Text(saving ? '正在保存…' : '更改会自动保存', style: _hintStyle(context)),
+          child: Text(
+            saving ? '正在保存…' : '更改会自动保存',
+            style: AppTypography.supporting(context),
+          ),
         ),
       ],
     );
-    final title = Text(
-      '偏好设置',
-      style: TextStyle(
-        fontSize: compact ? 28 : 36,
-        fontWeight: FontWeight.w500,
-        letterSpacing: .5,
-        color: colors.primary,
-        height: 1.3,
-      ),
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final inlineStatus =
-            constraints.maxWidth >= 560 &&
-            MediaQuery.textScalerOf(context).scale(14) <= 20;
-        final heading = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            title,
-            const SizedBox(height: 8),
-            Text('提醒与显示，按你的习惯。', style: _descriptionStyle(context)),
-            const SizedBox(height: 14),
-            Container(width: 38, height: 1.5, color: colors.primary),
-          ],
-        );
-        if (inlineStatus) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(child: heading),
-              const SizedBox(width: 24),
-              status,
-            ],
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [heading, const SizedBox(height: 14), status],
-        );
-      },
+    return AppPageHeader(
+      title: '偏好设置',
+      subtitle: '提醒与显示，按你的习惯。',
+      compact: compact,
+      trailing: status,
     );
   }
 }
@@ -631,16 +613,9 @@ class _SettingsGrid extends StatelessWidget {
   );
 }
 
-TextStyle _descriptionStyle(BuildContext context) => TextStyle(
-  fontSize: 14,
-  height: 1.6,
-  color: AppPalette.of(context).textSecondary,
-);
-TextStyle _hintStyle(BuildContext context) => TextStyle(
-  fontSize: 13,
-  height: 1.6,
-  color: AppPalette.of(context).textSecondary,
-);
+TextStyle _descriptionStyle(BuildContext context) =>
+    AppTypography.supporting(context);
+TextStyle _hintStyle(BuildContext context) => AppTypography.caption(context);
 
 String _presetLabel(int minutes) =>
     '${minutes % 60 == 0 ? minutes ~/ 60 : minutes / 60} 小时';
@@ -680,7 +655,6 @@ class _IntervalPreference extends StatelessWidget {
         AppButton(
           key: const ValueKey('custom-interval-button'),
           compact: true,
-          radius: 6,
           onPressed: busy ? null : onCustom,
           child: const _ActionLabel(
             icon: CupertinoIcons.slider_horizontal_3,
@@ -732,6 +706,7 @@ class _SettingsGroup extends StatelessWidget {
     required this.description,
     required this.children,
     this.footer,
+    this.separated = true,
   });
 
   final IconData icon;
@@ -739,6 +714,7 @@ class _SettingsGroup extends StatelessWidget {
   final String description;
   final List<Widget> children;
   final String? footer;
+  final bool separated;
 
   @override
   Widget build(BuildContext context) {
@@ -747,20 +723,12 @@ class _SettingsGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(height: 1, color: colors.border),
+        if (separated) Container(height: 1, color: colors.border),
         SizedBox(height: compact ? 16 : 20),
         Row(
           children: [
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w500,
-                  color: colors.textPrimary,
-                  letterSpacing: .3,
-                ),
-              ),
+              child: Text(title, style: AppTypography.sectionTitle(context)),
             ),
             const SizedBox(width: 16),
             Icon(icon, size: 21, color: colors.textSecondary),
@@ -821,15 +789,7 @@ class _ToggleRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    height: 1.45,
-                    fontWeight: FontWeight.w500,
-                    color: colors.textPrimary,
-                  ),
-                ),
+                Text(title, style: AppTypography.label(context)),
                 const SizedBox(height: 5),
                 Text(subtitle, style: _hintStyle(context)),
               ],
@@ -874,12 +834,12 @@ class _PreferenceOption extends StatelessWidget {
       selected: selected,
       excludeSemantics: true,
       child: Container(
-        constraints: const BoxConstraints(minHeight: 46),
+        constraints: const BoxConstraints(minHeight: 48),
         decoration: BoxDecoration(
           color: selected
               ? colors.primary.withValues(alpha: .07)
               : colors.background,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: selected
                 ? colors.primary.withValues(alpha: .7)
@@ -891,17 +851,13 @@ class _PreferenceOption extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 17, color: foreground),
+              Icon(icon, size: 20, color: foreground),
               const SizedBox(width: 7),
             ],
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(
-                  fontSize: icon == null ? 16 : 14,
-                  fontWeight: FontWeight.w500,
-                  color: foreground,
-                ),
+                style: AppTypography.button.copyWith(color: foreground),
               ),
             ),
           ],
@@ -962,10 +918,7 @@ class _TimeControl extends StatelessWidget {
                 ],
               ),
             );
-            final labelText = Text(
-              label,
-              style: TextStyle(fontSize: 16, color: colors.textPrimary),
-            );
+            final labelText = Text(label, style: AppTypography.label(context));
             if (MediaQuery.textScalerOf(context).scale(14) > 20) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -995,7 +948,7 @@ class _ActionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 17),
+      Icon(icon, size: 20),
       const SizedBox(width: 8),
       Flexible(child: Text(label)),
     ],
@@ -1031,10 +984,7 @@ class _PermissionRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(fontSize: 16, color: colors.textPrimary),
-                  ),
+                  Text(label, style: AppTypography.label(context)),
                   const SizedBox(height: 5),
                   Text(subtitle, style: _hintStyle(context)),
                 ],
@@ -1111,24 +1061,14 @@ class _IntervalEditorState extends State<_IntervalEditor> {
             constraints: const BoxConstraints(maxWidth: 440),
             child: SingleChildScrollView(
               child: AppSurface(
-                radius: 12,
+                radius: 24,
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '自定义喂奶间隔',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                        color: colors.primary,
-                        letterSpacing: .3,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(width: 38, height: 1.5, color: colors.primary),
-                    const SizedBox(height: 14),
+                    Text('自定义喂奶间隔', style: AppTypography.dialogTitle(context)),
+                    const SizedBox(height: 12),
                     Text(
                       '选择适合宝宝的节奏。保存后，当前计时会按新间隔重新计算。',
                       style: _descriptionStyle(context),
@@ -1153,7 +1093,7 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: colors.background,
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(24),
                         border: Border.all(
                           color: _error == null ? colors.border : colors.alert,
                           width: 1,
@@ -1174,11 +1114,9 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       const SizedBox(height: 10),
                       Text(
                         _error!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: colors.alert,
-                          height: 1.5,
-                        ),
+                        style: AppTypography.supporting(
+                          context,
+                        ).copyWith(color: colors.alert),
                       ),
                     ],
                     const SizedBox(height: 24),
@@ -1187,14 +1125,9 @@ class _IntervalEditorState extends State<_IntervalEditor> {
                       spacing: 12,
                       runSpacing: 10,
                       children: [
-                        AppButton(
-                          onPressed: _close,
-                          radius: 6,
-                          child: const Text('取消'),
-                        ),
+                        AppButton(onPressed: _close, child: const Text('取消')),
                         AppButton(
                           filled: true,
-                          radius: 6,
                           onPressed: _submit,
                           child: const Text('保存'),
                         ),

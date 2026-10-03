@@ -45,18 +45,18 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "喂奶提醒");
+    gtk_header_bar_set_title(header_bar, "奶点记");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "feed_reminder");
+    gtk_window_set_title(window, "奶点记");
   }
 
-  // Set window size constraints for tablet-like experience
+  // Match the smallest responsive content size in GTK logical pixels.
   gtk_window_set_default_size(window, 450, 800);
   GdkGeometry geometry;
   geometry.min_width = 400;
-  geometry.min_height = 700;
+  geometry.min_height = 280;
   gtk_window_set_geometry_hints(window, nullptr, &geometry, GDK_HINT_MIN_SIZE);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();

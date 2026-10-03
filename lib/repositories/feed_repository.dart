@@ -17,7 +17,14 @@ class FeedRepository {
     final history = await _storage.getFeedHistory();
     if (!hasHistory) {
       final legacyTime = await _storage.getLastFeedTime();
-      if (legacyTime != null) history.add(FeedRecord(time: legacyTime));
+      if (legacyTime != null) {
+        history.add(
+          FeedRecord(
+            id: 'legacy-last-${legacyTime.millisecondsSinceEpoch}',
+            time: legacyTime,
+          ),
+        );
+      }
     }
     final identities = <String>{};
     if (history.any(
@@ -43,7 +50,14 @@ class FeedRepository {
   }
 
   static List<FeedRecord> normalize(Iterable<FeedRecord> records) {
-    final ordered = records.toList()..sort((a, b) => b.time.compareTo(a.time));
+    // Preserve the input order for equal instants. List.sort is not stable;
+    // shuffling equal-time records could change the active cycle's identity.
+    final indexed = records.indexed.toList()
+      ..sort((a, b) {
+        final byTime = b.$2.time.compareTo(a.$2.time);
+        return byTime == 0 ? a.$1.compareTo(b.$1) : byTime;
+      });
+    final ordered = indexed.map((entry) => entry.$2).toList();
     return List.unmodifiable([
       for (var index = 0; index < ordered.length; index++)
         FeedRecord(

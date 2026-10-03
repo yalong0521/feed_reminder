@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/constants.dart';
+import '../theme/app_typography.dart';
 import '../utils/time_utils.dart';
 import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
 
 import '../widgets/landscape_feed_panel.dart';
 import '../widgets/countdown_text.dart';
+import '../widgets/overdue_duration.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isActive;
@@ -221,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final size = MediaQuery.sizeOf(context);
       final landscape = size.width >= 600 && size.width > size.height;
       final overdue = feed.state == FeedState.alerting;
-      final standbyLabel = overdue ? '已超时' : '距离下次喂奶';
+      final standbyLabel = overdue ? '超时' : '距离下次喂奶';
       final standbyTime = TimeUtils.formatDuration(
         overdue ? feed.overdue : feed.timeRemaining,
       );
@@ -246,6 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: LandscapeFeedPanel(
                   feed: feed,
                   quiet: quiet,
+                  pulseEnabled: widget.isActive && !_dimmed,
                   onRecord: _recordFeed,
                   onUndo: _undoFeed,
                   onStopAlert: _stopAlert,
@@ -281,37 +284,80 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               child: Padding(
                                 padding: const EdgeInsets.all(28),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      standbyLabel,
-                                      style: TextStyle(
-                                        color: AppPalette.dark.textSecondary,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Flexible(
-                                      child: FittedBox(
+                                child: overdue
+                                    ? FittedBox(
                                         fit: BoxFit.scaleDown,
-                                        child: CountdownText(
-                                          standbyTime,
-                                          fontSize: landscape ? 112 : 64,
-                                          color: AppPalette.dark.primary,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            OverdueDuration(
+                                              duration: feed.overdue,
+                                              color: AppPalette.dark.alert,
+                                              fontSize:
+                                                  CountdownText.timerFontSize(
+                                                    landscape,
+                                                  ),
+                                              unitFontSize: 24,
+                                              pulse: true,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              '轻触唤醒',
+                                              style:
+                                                  AppTypography.supporting(
+                                                    context,
+                                                  ).copyWith(
+                                                    color: AppPalette
+                                                        .dark
+                                                        .textSecondary,
+                                                  ),
+                                            ),
+                                          ],
                                         ),
+                                      )
+                                    : Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            child: Text(
+                                              standbyLabel,
+                                              style: TextStyle(
+                                                color: AppPalette
+                                                    .dark
+                                                    .textSecondary,
+                                                fontSize: 18,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Flexible(
+                                            child: FittedBox(
+                                              fit: BoxFit.scaleDown,
+                                              child: CountdownText(
+                                                standbyTime,
+                                                fontSize:
+                                                    CountdownText.timerFontSize(
+                                                      landscape,
+                                                    ),
+                                                color: AppPalette.dark.primary,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          Text(
+                                            '下次 ${TimeUtils.formatTime(feed.nextFeedTime!)} · 轻触唤醒',
+                                            style:
+                                                AppTypography.supporting(
+                                                  context,
+                                                ).copyWith(
+                                                  color: AppPalette
+                                                      .dark
+                                                      .textSecondary,
+                                                ),
+                                          ),
+                                        ],
                                       ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      '${overdue ? '原定' : '下次'} ${TimeUtils.formatTime(feed.nextFeedTime!)} · 轻触唤醒',
-                                      style: TextStyle(
-                                        color: AppPalette.dark.textSecondary,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ),
                             ),
                           ),

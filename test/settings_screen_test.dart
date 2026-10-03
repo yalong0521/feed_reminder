@@ -177,55 +177,89 @@ void main() {
           .setMockMethodCallHandler(notificationChannel, null);
     });
 
-    testWidgets('opens settings once while both permission rows are busy', (
-      tester,
-    ) async {
-      settingsGate = Completer<void>();
-      await showSettings(tester, notifications: NotificationService());
-      final notification = find.text('系统通知权限');
-      final exactAlarm = find.text('准时提醒权限');
-      await tester.ensureVisible(exactAlarm);
-      expect(find.text('前往系统通知设置'), findsOneWidget);
-      expect(find.text('前往系统授权'), findsOneWidget);
+    testWidgets(
+      'opens settings once while both permission rows are busy',
+      (tester) async {
+        settingsGate = Completer<void>();
+        await showSettings(tester, notifications: NotificationService());
+        final notification = find.text('系统通知权限');
+        final exactAlarm = find.text('准时提醒权限');
+        await tester.ensureVisible(exactAlarm);
+        expect(find.text('前往系统通知设置'), findsOneWidget);
+        expect(find.text('前往系统授权'), findsOneWidget);
 
-      await tester.tap(notification);
-      await tester.pump();
-      await tester.tap(notification);
-      await tester.tap(exactAlarm);
-      await tester.pump();
-      expect(calls, ['openNotificationSettings']);
+        await tester.tap(notification);
+        await tester.pump();
+        await tester.tap(notification);
+        await tester.tap(exactAlarm);
+        await tester.pump();
+        expect(calls, ['openNotificationSettings']);
 
-      settingsGate.complete();
-      await tester.pumpAndSettle();
-      await tester.tap(notification);
-      await tester.pumpAndSettle();
-      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+        settingsGate.complete();
+        await tester.pumpAndSettle();
+        await tester.tap(notification);
+        await tester.pumpAndSettle();
+        expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
 
-    testWidgets('failed settings navigation shows a notice and allows retry', (
-      tester,
-    ) async {
-      settingsGate = Completer<void>();
-      await showSettings(tester, notifications: NotificationService());
-      final notification = find.text('系统通知权限');
-      await tester.ensureVisible(notification);
-      await tester.tap(notification);
-      await tester.pump();
-      settingsGate.completeError(
-        PlatformException(code: 'settings_unavailable'),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('无法打开权限设置，请在系统设置中检查应用权限。'), findsOneWidget);
-      await closeErrorDialog(tester);
+    testWidgets(
+      'permission actions ignore a second activation before rebuild',
+      (tester) async {
+        settingsGate = Completer<void>();
+        await showSettings(tester, notifications: NotificationService());
+        final exactAlarm = find.text('准时提醒权限');
+        await tester.ensureVisible(exactAlarm);
+        final notificationControl = tester.widget<AppPressable>(
+          find.ancestor(
+            of: find.text('系统通知权限'),
+            matching: find.byType(AppPressable),
+          ),
+        );
+        final exactControl = tester.widget<AppPressable>(
+          find.ancestor(of: exactAlarm, matching: find.byType(AppPressable)),
+        );
+        // Both callbacks come from the same painted frame. Disabling after the
+        // next rebuild alone cannot guard an already-dispatched activation.
+        notificationControl.onPressed!();
+        notificationControl.onPressed!();
+        exactControl.onPressed!();
+        await tester.pump();
+        expect(calls, ['openNotificationSettings']);
+        settingsGate.complete();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
 
-      settingsGate = Completer<void>()..complete();
-      await tester.tap(notification);
-      await tester.pumpAndSettle();
-      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
-      expect(find.byType(AppMessageDialog), findsNothing);
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+    testWidgets(
+      'failed settings navigation shows a notice and allows retry',
+      (tester) async {
+        settingsGate = Completer<void>();
+        await showSettings(tester, notifications: NotificationService());
+        final notification = find.text('系统通知权限');
+        await tester.ensureVisible(notification);
+        await tester.tap(notification);
+        await tester.pump();
+        settingsGate.completeError(
+          PlatformException(code: 'settings_unavailable'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('无法打开权限设置，请在系统设置中检查应用权限。'), findsOneWidget);
+        await closeErrorDialog(tester);
+
+        settingsGate = Completer<void>()..complete();
+        await tester.tap(notification);
+        await tester.pumpAndSettle();
+        expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+        expect(find.byType(AppMessageDialog), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
   });
 
   testWidgets('settings fit a 320 pixel screen at 200 percent text scale', (

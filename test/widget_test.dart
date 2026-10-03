@@ -23,6 +23,8 @@ import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/app_message_dialog.dart';
 import 'package:feed_reminder/widgets/feed_button.dart';
 import 'package:feed_reminder/widgets/countdown_timeline.dart';
+import 'package:feed_reminder/widgets/overdue_duration.dart';
+import 'package:feed_reminder/widgets/overdue_timeline.dart';
 
 class _Audio extends AudioService {
   @override
@@ -89,12 +91,12 @@ class _FailFirstAcknowledgementStorage extends StorageService {
   int acknowledgementAttempts = 0;
 
   @override
-  Future<void> setAcknowledgedFeedTime(DateTime? time) async {
+  Future<void> setAcknowledgedFeedRecord(FeedRecord? record) async {
     acknowledgementAttempts++;
     if (acknowledgementAttempts == 1) {
       throw StateError('Simulated acknowledgement write failure');
     }
-    await super.setAcknowledgedFeedTime(time);
+    await super.setAcknowledgedFeedRecord(record);
   }
 }
 
@@ -128,6 +130,16 @@ class _FailFirstUndoStorage extends StorageService {
     }
     await super.setFeedHistory(records);
   }
+}
+
+/// Read the toggle payload from the native Pigeon channel without a player or
+/// actual system wake-lock side effects. Type 129 carries [bool enable].
+class _WakelockTestCodec extends StandardMessageCodec {
+  const _WakelockTestCodec();
+
+  @override
+  Object? readValueOfType(int type, ReadBuffer buffer) =>
+      type == 129 ? readValue(buffer) : super.readValueOfType(type, buffer);
 }
 
 void _expectNoMaterialInteractions() {
@@ -233,6 +245,69 @@ Future<void> _slideToRecord(WidgetTester tester) async {
   await tester.dragFrom(start, Offset(track.right - 4 - start.dx, 0));
 }
 
+void _expectInlineOverdue(WidgetTester tester, String minutes) {
+  final duration = find.byType(OverdueDuration).hitTestable();
+  final prefix = find.descendant(of: duration, matching: find.text('超时'));
+  final number = find.descendant(of: duration, matching: find.text(minutes));
+  final unit = find.descendant(of: duration, matching: find.text('分钟'));
+  expect(duration, findsOneWidget);
+  expect(find.text('超时').hitTestable(), findsOneWidget);
+  expect(prefix.hitTestable(), findsOneWidget);
+  expect(number.hitTestable(), findsOneWidget);
+  expect(unit.hitTestable(), findsOneWidget);
+  expect(
+    tester.getCenter(number).dx,
+    closeTo(tester.getCenter(duration).dx, .1),
+    reason:
+        'Elapsed digits, rather than the combined label row, stay centered.',
+  );
+  for (final type in [FadeTransition, ScaleTransition]) {
+    final effect = find.descendant(of: duration, matching: find.byType(type));
+    expect(
+      find.descendant(of: effect, matching: find.text(minutes)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: effect, matching: find.text('超时')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: effect, matching: find.text('分钟')),
+      findsNothing,
+    );
+  }
+  expect(tester.getRect(prefix).right, lessThan(tester.getRect(number).left));
+  expect(tester.getRect(number).right, lessThan(tester.getRect(unit).left));
+  double baseline(Finder text) {
+    final box = tester.renderObject<RenderBox>(text);
+    return box
+        .localToGlobal(
+          Offset(
+            0,
+            box.getDryBaseline(box.constraints, TextBaseline.alphabetic)!,
+          ),
+        )
+        .dy;
+  }
+
+  expect(baseline(prefix), closeTo(baseline(number), .1));
+  expect(baseline(unit), closeTo(baseline(number), .1));
+}
+
+void _expectOverdueStandbyCopy() {
+  final standby = find.byKey(const ValueKey('standby-screen'));
+  expect(
+    find.descendant(of: standby, matching: find.text('轻触唤醒')),
+    findsOneWidget,
+  );
+  for (final label in ['原定', '现在']) {
+    expect(
+      find.descendant(of: standby, matching: find.textContaining(label)),
+      findsNothing,
+    );
+  }
+}
+
 Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   WidgetTester tester, {
   Size size = const Size(390, 844),
@@ -241,6 +316,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   List<FeedRecord>? seededRecords,
   bool burnInProtection = false,
   bool enablePlatformEffects = false,
+  bool reduceMotion = true,
   Brightness brightness = Brightness.light,
   FakeViewPadding padding = FakeViewPadding.zero,
   StorageService? storageOverride,
@@ -252,6 +328,10 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   tester.view.devicePixelRatio = 1;
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   tester.platformDispatcher.platformBrightnessTestValue = brightness;
+  // Normal state/layout assertions can settle despite the overdue pulse.
+  // Tests that check animated feedback opt back into motion explicitly.
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      FakeAccessibilityFeatures(disableAnimations: reduceMotion);
   tester.view.padding = padding;
   tester.view.viewPadding = padding;
   tester.view.viewInsets = FakeViewPadding.zero;
@@ -259,6 +339,7 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   addTearDown(tester.view.resetPadding);
   addTearDown(tester.view.resetViewPadding);
   addTearDown(tester.view.resetViewInsets);
@@ -323,12 +404,20 @@ void main() {
         'dev.flutter.pigeon.wakelock_plus_platform_interface.WakelockPlusApi.toggle';
     late List<MethodCall> calls;
     late List<bool> appliedHiddenStates;
+    late List<bool> wakelockRequests;
+    late List<bool> appliedWakelockStates;
     Completer<void>? hideGate;
+    Completer<void>? enableGate;
+    var failNextEnable = false;
 
     setUp(() {
       calls = [];
       appliedHiddenStates = [];
+      wakelockRequests = [];
+      appliedWakelockStates = [];
       hideGate = null;
+      enableGate = null;
+      failNextEnable = false;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(nativeChannel, (call) async {
@@ -351,8 +440,22 @@ void main() {
         }
         return null;
       });
-      messenger.setMockMessageHandler(wakelockChannel, (_) async {
-        return const StandardMessageCodec().encodeMessage([null]);
+      messenger.setMockMessageHandler(wakelockChannel, (message) async {
+        const codec = _WakelockTestCodec();
+        final request = codec.decodeMessage(message) as List;
+        final enabled = (request.single as List).single as bool;
+        wakelockRequests.add(enabled);
+        if (enabled && failNextEnable) {
+          failNextEnable = false;
+          return codec.encodeMessage([
+            'wake_unavailable',
+            'Enable failed',
+            null,
+          ]);
+        }
+        if (enabled) await enableGate?.future;
+        appliedWakelockStates.add(enabled);
+        return codec.encodeMessage([null]);
       });
     });
 
@@ -367,6 +470,71 @@ void main() {
     final mobilePlatforms = TargetPlatform.values
         .where((platform) => ['android', 'iOS', 'ohos'].contains(platform.name))
         .toSet();
+
+    for (final exit in ['page', 'background', 'disposal']) {
+      testWidgets(
+        '$exit leaves wake lock disabled after a delayed native enable',
+        (tester) async {
+          enableGate = Completer<void>();
+          try {
+            await _mount(tester, seeded: true, enablePlatformEffects: true);
+            expect(wakelockRequests, [true]);
+            expect(appliedWakelockStates, isEmpty);
+            switch (exit) {
+              case 'page':
+                tester
+                    .widget<HomeScreen>(find.byType(HomeScreen))
+                    .onHistoryRequested!();
+              case 'background':
+                tester.binding.handleAppLifecycleStateChanged(
+                  AppLifecycleState.inactive,
+                );
+              case 'disposal':
+                await tester.pumpWidget(const SizedBox.shrink());
+            }
+            await tester.pumpAndSettle();
+            enableGate!.complete();
+            await tester.pumpAndSettle();
+            expect(wakelockRequests, [true, false]);
+            expect(appliedWakelockStates, [true, false]);
+            expect(tester.takeException(), isNull);
+          } finally {
+            if (!enableGate!.isCompleted) enableGate!.complete();
+            await tester.pumpWidget(const SizedBox.shrink());
+            if (exit == 'background') {
+              tester.binding.handleAppLifecycleStateChanged(
+                AppLifecycleState.resumed,
+              );
+            }
+            await tester.pumpAndSettle();
+          }
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.android),
+      );
+    }
+
+    testWidgets(
+      'failed native wake enable retries on the next countdown refresh',
+      (tester) async {
+        failNextEnable = true;
+        final app = await _mount(
+          tester,
+          seeded: true,
+          enablePlatformEffects: true,
+        );
+        expect(wakelockRequests, [true]);
+        expect(appliedWakelockStates, isEmpty);
+        await app.feed.refresh();
+        await tester.pumpAndSettle();
+        expect(wakelockRequests, [true, true]);
+        expect(appliedWakelockStates, [true]);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        expect(appliedWakelockStates.last, isFalse);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
 
     testWidgets(
       'idle hides bars through rotation and theme changes until touch wakes',
@@ -434,47 +602,51 @@ void main() {
     );
 
     for (final exit in ['alert', 'disabled', 'background', 'page']) {
-      testWidgets('$exit restores system bars from standby', (tester) async {
-        final app = await _mount(
-          tester,
-          seeded: true,
-          burnInProtection: true,
-          enablePlatformEffects: true,
-        );
-        await tester.pump(const Duration(seconds: 30));
-        await tester.pumpAndSettle();
-        expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
-        expect(appliedHiddenStates.last, isTrue);
-
-        switch (exit) {
-          case 'alert':
-            await app.settings.setFeedInterval(1);
-          case 'disabled':
-            await app.settings.setBurnInProtectionEnabled(false);
-          case 'background':
-            tester.binding.handleAppLifecycleStateChanged(
-              AppLifecycleState.inactive,
-            );
-          case 'page':
-            tester
-                .widget<HomeScreen>(find.byType(HomeScreen))
-                .onHistoryRequested!();
-        }
-        await tester.pumpAndSettle();
-        expect(appliedHiddenStates.last, isFalse);
-        expect(find.byKey(const ValueKey('standby-screen')), findsNothing);
-        expect(app.feed.feedHistory, hasLength(2));
-        if (exit == 'background') {
-          tester.binding.handleAppLifecycleStateChanged(
-            AppLifecycleState.resumed,
+      testWidgets(
+        '$exit restores system bars from standby',
+        (tester) async {
+          final app = await _mount(
+            tester,
+            seeded: true,
+            burnInProtection: true,
+            enablePlatformEffects: true,
           );
+          await tester.pump(const Duration(seconds: 30));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+          expect(appliedHiddenStates.last, isTrue);
+
+          switch (exit) {
+            case 'alert':
+              await app.settings.setFeedInterval(1);
+            case 'disabled':
+              await app.settings.setBurnInProtectionEnabled(false);
+            case 'background':
+              tester.binding.handleAppLifecycleStateChanged(
+                AppLifecycleState.inactive,
+              );
+            case 'page':
+              tester
+                  .widget<HomeScreen>(find.byType(HomeScreen))
+                  .onHistoryRequested!();
+          }
           await tester.pumpAndSettle();
           expect(appliedHiddenStates.last, isFalse);
-        }
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pumpAndSettle();
-      }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+          expect(find.byKey(const ValueKey('standby-screen')), findsNothing);
+          expect(app.feed.feedHistory, hasLength(2));
+          if (exit == 'background') {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.resumed,
+            );
+            await tester.pumpAndSettle();
+            expect(appliedHiddenStates.last, isFalse);
+          }
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.android),
+      );
     }
 
     testWidgets(
@@ -556,6 +728,7 @@ void main() {
   testWidgets(
     'countdown timeline follows time, interval changes and backfill',
     (tester) async {
+      final semantics = tester.ensureSemantics();
       var now = DateTime(2026, 9, 27, 12);
       final app = await _mount(
         tester,
@@ -607,19 +780,28 @@ void main() {
       now = now.add(const Duration(minutes: 243));
       await app.feed.refresh();
       await tester.pumpAndSettle();
-      expect(find.text('现在 16:48'), findsOneWidget);
-      expect(find.text('原定 16:48'), findsOneWidget);
+      expect(find.text('现在 16:48').hitTestable(), findsOneWidget);
+      expect(find.text('原定 16:48').hitTestable(), findsOneWidget);
+      expect(find.byType(OverdueTimeline), findsOneWidget);
+      expect(find.bySemanticsLabel('超时 00:00:00'), findsOneWidget);
+      _expectInlineOverdue(tester, '0');
       expect(find.text('下一次 16:48'), findsNothing);
       await app.feed.stopAlert();
       await tester.pumpAndSettle();
-      expect(find.text('现在 16:48'), findsOneWidget);
-      expect(find.text('原定 16:48'), findsOneWidget);
+      expect(find.text('现在 16:48').hitTestable(), findsOneWidget);
+      expect(find.text('原定 16:48').hitTestable(), findsOneWidget);
+      expect(find.byType(OverdueTimeline), findsOneWidget);
+      expect(find.bySemanticsLabel('超时 00:00:00'), findsOneWidget);
+      _expectInlineOverdue(tester, '0');
 
       now = now.add(const Duration(minutes: 10));
       await app.feed.refresh();
       await tester.pumpAndSettle();
-      expect(find.text('现在 16:58'), findsOneWidget);
-      expect(find.text('原定 16:48'), findsOneWidget);
+      expect(find.text('现在 16:58').hitTestable(), findsOneWidget);
+      expect(find.text('原定 16:48').hitTestable(), findsOneWidget);
+      expect(find.byType(OverdueTimeline), findsOneWidget);
+      expect(find.bySemanticsLabel('超时 00:10:00'), findsOneWidget);
+      _expectInlineOverdue(tester, '10');
 
       now = DateTime(2026, 9, 27, 11);
       await app.feed.refresh();
@@ -629,6 +811,7 @@ void main() {
       expect(find.text('下一次 16:48'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+      semantics.dispose();
     },
   );
 
@@ -942,7 +1125,11 @@ void main() {
   testWidgets('slider press scales artwork and drag carries the gradient', (
     tester,
   ) async {
-    final app = await _mount(tester, size: const Size(844, 390));
+    final app = await _mount(
+      tester,
+      size: const Size(844, 390),
+      reduceMotion: false,
+    );
     final thumb = find.byKey(const ValueKey('feed-slide-thumb'));
     final artwork = find.byKey(const ValueKey('feed-slide-thumb-visual'));
     final fill = find.byKey(const ValueKey('feed-slide-fill'));
@@ -1361,7 +1548,10 @@ void main() {
         seeded: true,
       );
       tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(highContrast: true);
+          const FakeAccessibilityFeatures(
+            highContrast: true,
+            disableAnimations: true,
+          );
       addTearDown(
         tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
       );
@@ -1801,6 +1991,167 @@ void main() {
   );
 
   testWidgets(
+    'countdown becomes visibly overdue at the deadline until a new feed is recorded',
+    (tester) async {
+      var now = DateTime(2026, 10, 2, 11, 59, 59);
+      final app = await _mount(
+        tester,
+        clock: () => now,
+        seededRecords: [FeedRecord(time: DateTime(2026, 10, 2, 9))],
+      );
+      final semantics = tester.ensureSemantics();
+      expect(find.text('00:00:01'), findsOneWidget);
+      expect(find.text('超时'), findsNothing);
+      expect(find.bySemanticsLabel('距离下次喂奶 00:00:01'), findsOneWidget);
+
+      // At zero, the time must already be identifiable as elapsed overtime.
+      now = now.add(const Duration(seconds: 1));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('超时').hitTestable(), findsOneWidget);
+      expect(find.text('0'), findsOneWidget);
+      expect(find.text('分钟'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:00:00'), findsOneWidget);
+      _expectInlineOverdue(tester, '0');
+
+      // The primary total minutes stay at zero until a full minute elapses;
+      // accessibility still exposes the accurate elapsed seconds.
+      now = now.add(const Duration(seconds: 59));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('0'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:00:59'), findsOneWidget);
+
+      now = now.add(const Duration(minutes: 14, seconds: 1));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('15'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:15:00'), findsOneWidget);
+      _expectInlineOverdue(tester, '15');
+
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await tester.pumpAndSettle();
+      expect(find.text('超时').hitTestable(), findsOneWidget);
+      expect(find.text('15'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:15:00'), findsOneWidget);
+      await tester.tap(find.text('停止本次提醒'));
+      await tester.pumpAndSettle();
+      expect(app.feed.isAlertAcknowledged, isTrue);
+      expect(app.feed.feedHistory, hasLength(1));
+      expect(find.text('超时'), findsOneWidget);
+      expect(find.text('15'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:15:00'), findsOneWidget);
+
+      now = now.add(const Duration(seconds: 1));
+      await app.feed.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('15'), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(find.bySemanticsLabel('超时 00:15:01'), findsOneWidget);
+      await _slideToRecord(tester);
+      await tester.pumpAndSettle();
+      expect(app.feed.feedHistory, hasLength(2));
+      expect(find.text('超时'), findsNothing);
+      expect(find.text('该喂奶了'), findsNothing);
+      expect(find.text('03:00:00'), findsOneWidget);
+      expect(find.bySemanticsLabel('距离下次喂奶 03:00:00'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      semantics.dispose();
+    },
+  );
+
+  testWidgets('overdue timeline distinguishes dates across midnight', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 10, 2, 0, 15);
+    final app = await _mount(
+      tester,
+      clock: () => now,
+      seededRecords: [FeedRecord(time: DateTime(2026, 10, 1, 20, 45))],
+    );
+    final semantics = tester.ensureSemantics();
+    expect(find.text('超时').hitTestable(), findsOneWidget);
+    expect(find.text('30'), findsOneWidget);
+    expect(find.text('分钟'), findsOneWidget);
+    expect(find.textContaining('超出原定时间'), findsNothing);
+    expect(find.bySemanticsLabel('超时 00:30:00'), findsOneWidget);
+    _expectInlineOverdue(tester, '30');
+    expect(find.text('原定 10/1 23:45'), findsOneWidget);
+    expect(find.text('现在 10/2 00:15'), findsOneWidget);
+    await tester.tap(find.text('停止本次提醒'));
+    await tester.pumpAndSettle();
+    expect(app.feed.isAlertAcknowledged, isTrue);
+    expect(find.text('原定 10/1 23:45'), findsOneWidget);
+    expect(find.text('现在 10/2 00:15'), findsOneWidget);
+    expect(app.feed.feedHistory, hasLength(1));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    semantics.dispose();
+  });
+
+  for (final overtime in [
+    (
+      duration: const Duration(hours: 1, minutes: 1, seconds: 9),
+      minutes: '61',
+      exact: '01:01:09',
+      size: const Size(390, 844),
+      showTimeline: true,
+    ),
+    (
+      duration: const Duration(days: 7, hours: 23, minutes: 59, seconds: 59),
+      minutes: '11519',
+      exact: '191:59:59',
+      size: const Size(640, 320),
+      showTimeline: false,
+    ),
+  ]) {
+    testWidgets(
+      'overdue ${overtime.exact} shows total elapsed minutes without wrapping',
+      (tester) async {
+        final now = DateTime(2026, 10, 2, 12);
+        await _mount(
+          tester,
+          size: overtime.size,
+          scale: 1.8,
+          clock: () => now,
+          seededRecords: [
+            FeedRecord(
+              time: now.subtract(overtime.duration + const Duration(hours: 3)),
+            ),
+          ],
+        );
+        final semantics = tester.ensureSemantics();
+        expect(find.text('超时').hitTestable(), findsOneWidget);
+        expect(find.text(overtime.minutes).hitTestable(), findsOneWidget);
+        expect(find.text('分钟'), findsOneWidget);
+        expect(find.textContaining('超出原定时间'), findsNothing);
+        expect(find.bySemanticsLabel('超时 ${overtime.exact}'), findsOneWidget);
+        _expectInlineOverdue(tester, overtime.minutes);
+        expect(
+          find.byType(OverdueTimeline),
+          overtime.showTimeline ? findsOneWidget : findsNothing,
+        );
+        final key = overtime.size.width > overtime.size.height
+            ? 'landscape-countdown'
+            : 'portrait-countdown';
+        expect(
+          tester.getSize(find.byKey(ValueKey(key))).height,
+          greaterThan(48),
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        semantics.dispose();
+      },
+    );
+  }
+
+  testWidgets(
     'overdue alert restarts idle time and protects the screen without stopping sound',
     (tester) async {
       var now = DateTime(2026, 9, 27, 12);
@@ -1841,9 +2192,14 @@ void main() {
       expect(find.byKey(const ValueKey('app-navigation')), findsNothing);
       expect(
         tester.getSemantics(standby).getSemanticsData().label,
-        '已超时 00:00:30，轻触唤醒屏幕',
+        '超时 00:00:30，轻触唤醒屏幕',
       );
-      expect(find.text('原定 12:00 · 轻触唤醒'), findsOneWidget);
+      expect(find.text('超时').hitTestable(), findsOneWidget);
+      expect(find.text('0').hitTestable(), findsOneWidget);
+      expect(find.text('分钟').hitTestable(), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      _expectInlineOverdue(tester, '0');
+      _expectOverdueStandbyCopy();
 
       for (var second = 31; second <= 33; second++) {
         now = now.add(const Duration(seconds: 1));
@@ -1853,8 +2209,10 @@ void main() {
         expect(standby, findsOneWidget);
         expect(
           tester.getSemantics(standby).getSemanticsData().label,
-          '已超时 00:00:$second，轻触唤醒屏幕',
+          '超时 00:00:$second，轻触唤醒屏幕',
         );
+        expect(find.text('0').hitTestable(), findsOneWidget);
+        expect(find.textContaining('超出原定时间'), findsNothing);
         expect(audio.isPlaying, isTrue);
         expect(audio.stopCalls, stopsWhileAlerting);
       }
@@ -1879,12 +2237,336 @@ void main() {
       await tester.pumpAndSettle();
       expect(standby, findsOneWidget);
       expect(audio.isPlaying, isFalse);
+      expect(find.text('超时').hitTestable(), findsOneWidget);
+      expect(find.text('0').hitTestable(), findsOneWidget);
+      expect(find.textContaining('超出原定时间'), findsNothing);
+      expect(
+        tester.getSemantics(standby).getSemanticsData().label,
+        '超时 00:00:34，轻触唤醒屏幕',
+      );
+      _expectInlineOverdue(tester, '0');
       expect(app.feed.feedHistory.map((record) => record.id), originalIds);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       semantics.dispose();
     },
   );
+
+  for (final size in [const Size(1200, 820), const Size(600, 1000)]) {
+    testWidgets(
+      'home and standby keep the same normal and overdue digit height at $size',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          var now = DateTime(2026, 10, 3, 11, 45);
+          final audio = _TrackingAudio();
+          final app = await _mount(
+            tester,
+            size: size,
+            clock: () => now,
+            audioOverride: audio,
+            seededRecords: [FeedRecord(time: DateTime(2026, 10, 3, 9))],
+            burnInProtection: true,
+            reduceMotion: false,
+          );
+          final main = find.byKey(
+            ValueKey(
+              size.width > size.height
+                  ? 'landscape-countdown'
+                  : 'portrait-countdown',
+            ),
+          );
+          final standby = find.byKey(const ValueKey('standby-screen'));
+          final normalMainHeight = tester
+              .getRect(
+                find.descendant(of: main, matching: find.text('00:15:00')),
+              )
+              .height;
+          await tester.pump(const Duration(seconds: 30));
+          await tester.pump(const Duration(milliseconds: 300));
+          final normalClock = find.descendant(
+            of: standby,
+            matching: find.text('00:15:00'),
+          );
+          expect(normalClock.hitTestable(), findsOneWidget);
+          final normalStandbyHeight = tester.getRect(normalClock).height;
+          expect(
+            normalStandbyHeight,
+            closeTo(normalMainHeight, .1),
+            reason:
+                'Standby keeps the same actual digit height as the home clock.',
+          );
+
+          // Becoming overdue wakes the clock, then a fresh idle interval returns
+          // it to standby. Measure at full pulse scale, before advancing frames.
+          now = DateTime(2026, 10, 3, 12, 15);
+          await app.feed.refresh();
+          await tester.pump();
+          expect(standby, findsNothing);
+          expect(
+            tester
+                .getRect(find.descendant(of: main, matching: find.text('15')))
+                .height,
+            closeTo(normalMainHeight, .1),
+          );
+          await tester.pump(const Duration(milliseconds: 300));
+          final ids = app.feed.feedHistory.map((record) => record.id).toList();
+          final deadline = app.feed.nextFeedTime;
+          final stopCalls = audio.stopCalls;
+          Finder fade(Finder duration) => find.descendant(
+            of: duration,
+            matching: find.byType(FadeTransition),
+          );
+          Finder scale(Finder duration) => find.descendant(
+            of: duration,
+            matching: find.byType(ScaleTransition),
+          );
+          ({double opacity, double scale}) phase(Finder duration) => (
+            opacity: tester
+                .widget<FadeTransition>(fade(duration))
+                .opacity
+                .value,
+            scale: tester.widget<ScaleTransition>(scale(duration)).scale.value,
+          );
+          void expectCentered(Finder duration) {
+            final number = find.descendant(
+              of: duration,
+              matching: find.text('15'),
+            );
+            expect(
+              tester.getCenter(number).dx,
+              closeTo(tester.getCenter(duration).dx, .1),
+            );
+          }
+
+          Future<void> expectMoving(Finder duration) async {
+            expectCentered(duration);
+            final before = phase(duration);
+            await tester.pump(const Duration(milliseconds: 300));
+            final after = phase(duration);
+            expect(after.opacity, isNot(closeTo(before.opacity, .001)));
+            expect(after.scale, isNot(closeTo(before.scale, .0001)));
+            expectCentered(duration);
+          }
+
+          await expectMoving(main);
+          await tester.pump(const Duration(seconds: 30));
+          await tester.pump();
+          expect(standby, findsOneWidget);
+          _expectOverdueStandbyCopy();
+          final visible = find.descendant(
+            of: standby,
+            matching: find.byType(OverdueDuration),
+          );
+          final overdueNumber = find.descendant(
+            of: visible,
+            matching: find.text('15'),
+          );
+          expect(overdueNumber.hitTestable(), findsOneWidget);
+          expect(phase(visible).scale, 1);
+          expect(
+            tester.getRect(overdueNumber).height,
+            closeTo(normalStandbyHeight, .1),
+            reason:
+                'The same roomy viewport keeps normal and overdue digits at the same height.',
+          );
+          await tester.pump(const Duration(milliseconds: 300));
+          final prefix = find.descendant(
+            of: visible,
+            matching: find.text('超时'),
+          );
+          final unit = find.descendant(of: visible, matching: find.text('分钟'));
+          final prefixBounds = tester.getRect(prefix);
+          final unitBounds = tester.getRect(unit);
+          for (final effect in [fade(visible), scale(visible)]) {
+            expect(
+              find.descendant(of: effect, matching: find.text('15')),
+              findsOneWidget,
+            );
+            expect(
+              find.descendant(of: effect, matching: find.text('超时')),
+              findsNothing,
+            );
+            expect(
+              find.descendant(of: effect, matching: find.text('分钟')),
+              findsNothing,
+            );
+          }
+          await expectMoving(visible);
+          expect(tester.getRect(prefix), prefixBounds);
+          expect(tester.getRect(unit), unitBounds);
+          expect(phase(main), (opacity: 1.0, scale: 1.0));
+          expect(
+            tester.getSemantics(standby).getSemanticsData().label,
+            '超时 00:15:00，轻触唤醒屏幕',
+          );
+
+          // The existing burn-in movement continues independently of the pulse.
+          final position = tester.getCenter(visible);
+          await tester.pump(const Duration(seconds: 5));
+          expect(tester.getCenter(visible), isNot(position));
+          await tester.tap(standby);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(standby, findsNothing);
+          await expectMoving(main);
+          expect(app.feed.feedHistory.map((record) => record.id), ids);
+          expect(app.feed.nextFeedTime, deadline);
+          expect(app.feed.isAlertAcknowledged, isFalse);
+          expect(audio.isPlaying, isTrue);
+          expect(audio.stopCalls, stopCalls);
+
+          // Backgrounding resets paint feedback; returning resumes it.
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(standby, findsNothing);
+          expect(phase(main), (opacity: 1.0, scale: 1.0));
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          await expectMoving(main);
+          expect(app.feed.feedHistory.map((record) => record.id), ids);
+          expect(app.feed.isAlertAcknowledged, isFalse);
+          expect(tester.takeException(), isNull);
+        } finally {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+          semantics.dispose();
+        }
+      },
+    );
+  }
+
+  for (final size in [const Size(320, 568), const Size(640, 280)]) {
+    testWidgets(
+      'large standby digits fit a long overdue value at scale 1.8 in $size',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final now = DateTime(2026, 10, 3, 12);
+          const overdue = Duration(
+            days: 7,
+            hours: 23,
+            minutes: 59,
+            seconds: 59,
+          );
+          final audio = _TrackingAudio();
+          final app = await _mount(
+            tester,
+            size: size,
+            scale: 1.8,
+            clock: () => now,
+            audioOverride: audio,
+            seededRecords: [
+              FeedRecord(
+                time: now.subtract(overdue + const Duration(hours: 3)),
+              ),
+            ],
+            burnInProtection: true,
+          );
+          final ids = app.feed.feedHistory.map((record) => record.id).toList();
+          final deadline = app.feed.nextFeedTime;
+          final stops = audio.stopCalls;
+          await tester.pump(const Duration(seconds: 30));
+          await tester.pumpAndSettle();
+          final standby = find.byKey(const ValueKey('standby-screen'));
+          final duration = find.descendant(
+            of: standby,
+            matching: find.byType(OverdueDuration),
+          );
+          final number = find.descendant(
+            of: duration,
+            matching: find.text('11519'),
+          );
+          final viewport = Offset.zero & size;
+          void expectVisibleContents() {
+            for (final label in ['11519', '超时', '分钟', '轻触唤醒']) {
+              final text = find.descendant(
+                of: standby,
+                matching: find.text(label),
+              );
+              expect(text.hitTestable(), findsOneWidget, reason: label);
+              final bounds = tester.getRect(text);
+              expect(
+                bounds.left,
+                greaterThanOrEqualTo(viewport.left - .1),
+                reason: label,
+              );
+              expect(
+                bounds.top,
+                greaterThanOrEqualTo(viewport.top - .1),
+                reason: label,
+              );
+              expect(
+                bounds.right,
+                lessThanOrEqualTo(viewport.right + .1),
+                reason: label,
+              );
+              expect(
+                bounds.bottom,
+                lessThanOrEqualTo(viewport.bottom + .1),
+                reason: label,
+              );
+            }
+            expect(tester.getRect(number).height, greaterThan(48));
+            expect(
+              tester.getCenter(number).dx,
+              closeTo(tester.getCenter(duration).dx, .1),
+            );
+          }
+
+          _expectInlineOverdue(tester, '11519');
+          _expectOverdueStandbyCopy();
+          expectVisibleContents();
+          expect(
+            tester.getSemantics(standby).getSemanticsData().label,
+            '超时 191:59:59，轻触唤醒屏幕',
+          );
+          tester.platformDispatcher.accessibilityFeaturesTestValue =
+              const FakeAccessibilityFeatures();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          final fade = find.descendant(
+            of: duration,
+            matching: find.byType(FadeTransition),
+          );
+          final scale = find.descendant(
+            of: duration,
+            matching: find.byType(ScaleTransition),
+          );
+          expect(
+            tester.widget<FadeTransition>(fade).opacity.value,
+            lessThan(1),
+          );
+          expect(
+            tester.widget<ScaleTransition>(scale).scale.value,
+            lessThan(1),
+          );
+          expectVisibleContents();
+          final position = tester.getCenter(duration);
+          await tester.pump(const Duration(seconds: 5));
+          expect(tester.getCenter(duration), isNot(position));
+          expectVisibleContents();
+          expect(app.feed.feedHistory.map((record) => record.id), ids);
+          expect(app.feed.nextFeedTime, deadline);
+          expect(app.feed.isAlertAcknowledged, isFalse);
+          expect(audio.isPlaying, isTrue);
+          expect(audio.stopCalls, stops);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          semantics.dispose();
+        }
+      },
+    );
+  }
 
   testWidgets(
     'initial overdue standby wakes for a changed deadline and the next feeding cycle',
@@ -1914,7 +2596,7 @@ void main() {
       await tester.pump(const Duration(seconds: 30));
       await tester.pumpAndSettle();
       expect(standby, findsOneWidget);
-      expect(find.text('原定 11:50 · 轻触唤醒'), findsOneWidget);
+      _expectOverdueStandbyCopy();
 
       await tester.tap(standby);
       await tester.pumpAndSettle();
@@ -2140,47 +2822,50 @@ void main() {
     },
   );
 
-  testWidgets('compact landscape respects system insets with large text', (
-    tester,
-  ) async {
-    const size = Size(640, 320);
-    const padding = FakeViewPadding(left: 24, right: 24, bottom: 16);
-    await _mount(
-      tester,
-      size: size,
-      scale: 1.8,
-      seeded: true,
-      padding: padding,
-    );
-    _expectTransparentSystemBars(
-      tester,
-      size: size,
-      backgroundBrightness: Brightness.light,
-    );
-    _expectControlsInsideSystemInsets(tester, size: size, padding: padding);
-    for (final target in [
-      find.byKey(const ValueKey('landscape-countdown')),
-      find.byType(FeedButton),
-    ]) {
-      final bounds = tester.getRect(target);
-      expect(bounds.left, greaterThanOrEqualTo(padding.left));
-      expect(bounds.top, greaterThanOrEqualTo(padding.top));
-      expect(bounds.right, lessThanOrEqualTo(size.width - padding.right));
-      expect(bounds.bottom, lessThanOrEqualTo(size.height - padding.bottom));
-    }
-    expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
-    for (final tab in ['nav-history', 'nav-settings', 'nav-home']) {
-      await tester.tap(find.byKey(ValueKey(tab)));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    }
-    await tester.pumpWidget(const SizedBox.shrink());
-  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+  testWidgets(
+    'compact landscape respects system insets with large text',
+    (tester) async {
+      const size = Size(640, 320);
+      const padding = FakeViewPadding(left: 24, right: 24, bottom: 16);
+      await _mount(
+        tester,
+        size: size,
+        scale: 1.8,
+        seeded: true,
+        padding: padding,
+      );
+      _expectTransparentSystemBars(
+        tester,
+        size: size,
+        backgroundBrightness: Brightness.light,
+      );
+      _expectControlsInsideSystemInsets(tester, size: size, padding: padding);
+      for (final target in [
+        find.byKey(const ValueKey('landscape-countdown')),
+        find.byType(FeedButton),
+      ]) {
+        final bounds = tester.getRect(target);
+        expect(bounds.left, greaterThanOrEqualTo(padding.left));
+        expect(bounds.top, greaterThanOrEqualTo(padding.top));
+        expect(bounds.right, lessThanOrEqualTo(size.width - padding.right));
+        expect(bounds.bottom, lessThanOrEqualTo(size.height - padding.bottom));
+      }
+      expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
+      for (final tab in ['nav-history', 'nav-settings', 'nav-home']) {
+        await tester.tap(find.byKey(ValueKey(tab)));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   for (final overdue in [false, true]) {
     testWidgets(
-      'short landscape keeps the time readable and timeline reachable when overdue=$overdue',
+      'short landscape keeps time and actions visible and the normal timeline reachable when overdue=$overdue',
       (tester) async {
+        final semantics = tester.ensureSemantics();
         final now = DateTime(2026, 9, 30, 11);
         final app = await _mount(
           tester,
@@ -2202,8 +2887,11 @@ void main() {
         final scroll = find.byKey(const ValueKey('countdown-details-scroll'));
         final initialViewport = tester.getRect(scroll);
         expect(timeBounds.height, greaterThan(48));
-        expect(timeBounds.top, greaterThanOrEqualTo(initialViewport.top));
-        expect(timeBounds.bottom, lessThanOrEqualTo(initialViewport.bottom));
+        expect(timeBounds.top, greaterThanOrEqualTo(initialViewport.top - .1));
+        expect(
+          timeBounds.bottom,
+          lessThanOrEqualTo(initialViewport.bottom + .1),
+        );
         expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
         expect(
           find.byKey(const ValueKey('nav-settings')).hitTestable(),
@@ -2211,13 +2899,31 @@ void main() {
         );
 
         if (overdue) {
+          final status = find.text('超时');
+          expect(status.hitTestable(), findsOneWidget);
+          final statusBounds = tester.getRect(status);
+          expect(statusBounds.top, greaterThanOrEqualTo(initialViewport.top));
+          expect(
+            statusBounds.bottom,
+            lessThanOrEqualTo(initialViewport.bottom),
+          );
+          expect(find.text('60'), findsOneWidget);
+          expect(find.text('分钟'), findsOneWidget);
+          expect(find.textContaining('超出原定时间'), findsNothing);
+          expect(find.bySemanticsLabel('超时 01:00:00'), findsOneWidget);
+          _expectInlineOverdue(tester, '60');
           expect(find.text('停止本次提醒').hitTestable(), findsOneWidget);
+          expect(find.byType(OverdueTimeline), findsNothing);
+          expect(find.text('原定 10:00'), findsNothing);
+          expect(find.text('现在 11:00'), findsNothing);
+        } else {
+          expect(find.text('超时'), findsNothing);
+          expect(find.text('02:00:00'), findsOneWidget);
         }
-        for (final label in [
-          '现在 11:00',
-          overdue ? '上次 07:00' : '上次 10:00',
-          overdue ? '原定 10:00' : '下一次 13:00',
-        ]) {
+        final timelineLabels = overdue
+            ? <String>[]
+            : ['上次 10:00', '现在 11:00', '下一次 13:00'];
+        for (final label in timelineLabels) {
           final target = find.text(label);
           await tester.ensureVisible(target);
           await tester.pumpAndSettle();
@@ -2232,9 +2938,16 @@ void main() {
           await tester.tap(stop);
           await tester.pumpAndSettle();
           expect(app.feed.isAlertAcknowledged, isTrue);
+          expect(find.byType(OverdueTimeline), findsNothing);
+          expect(find.text('原定 10:00'), findsNothing);
+          expect(find.text('现在 11:00'), findsNothing);
+          expect(find.bySemanticsLabel('超时 01:00:00'), findsOneWidget);
+          _expectInlineOverdue(tester, '60');
+          expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
+        semantics.dispose();
       },
     );
   }
@@ -2577,6 +3290,7 @@ void main() {
   );
 
   for (final viewport in [
+    (size: const Size(400, 280), scale: 1.0, brightness: Brightness.light),
     (size: const Size(320, 640), scale: 1.0, brightness: Brightness.light),
     (size: const Size(390, 844), scale: 1.8, brightness: Brightness.light),
     (size: const Size(640, 320), scale: 1.8, brightness: Brightness.light),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/constants.dart';
+import '../theme/app_typography.dart';
 import 'app_message_dialog.dart';
 import 'app_surface.dart';
 
@@ -105,7 +106,7 @@ class _AppPressableState extends State<AppPressable> {
               child: DecoratedBox(
                 position: DecorationPosition.foreground,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(24),
                   border: _focused
                       ? Border.all(
                           color: AppPalette.of(context).primary,
@@ -134,7 +135,7 @@ class AppButton extends StatelessWidget {
     this.compact = false,
     this.padding,
     this.semanticLabel,
-    this.radius = 16,
+    this.radius = 24,
   });
 
   final Widget child;
@@ -167,11 +168,7 @@ class AppButton extends StatelessWidget {
           child: IconTheme(
             data: IconThemeData(color: foreground, size: 20),
             child: DefaultTextStyle.merge(
-              style: TextStyle(
-                color: foreground,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+              style: AppTypography.button.copyWith(color: foreground),
               child: child,
             ),
           ),
@@ -224,7 +221,6 @@ void showAppNotice(
         animation: controller,
         builder: (context, child) {
           final request = controller.request;
-          final colors = AppPalette.of(context);
           return AppMessageDialog(
             key: const ValueKey('app-notice-dialog'),
             title: '操作未完成',
@@ -234,11 +230,9 @@ void showAppNotice(
               child: Text(
                 request.message,
                 key: const ValueKey('app-notice-message'),
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  height: 1.6,
-                  fontSize: 15,
-                ),
+                style: AppTypography.body(
+                  context,
+                ).copyWith(color: AppPalette.of(context).textSecondary),
               ),
             ),
             actions: [
@@ -383,10 +377,7 @@ Future<DateTime?> showAppDateTimePicker(
               radius: 24,
               padding: const EdgeInsets.all(20),
               child: DefaultTextStyle(
-                style: TextStyle(
-                  color: AppPalette.of(context).textPrimary,
-                  fontSize: 16,
-                ),
+                style: AppTypography.body(context),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -402,7 +393,7 @@ Future<DateTime?> showAppDateTimePicker(
                           child: Text(
                             title,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            style: AppTypography.dialogTitle(context),
                           ),
                         ),
                         AppButton(
@@ -413,13 +404,7 @@ Future<DateTime?> showAppDateTimePicker(
                         ),
                       ],
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Divider(
-                        color: AppPalette.of(context).border,
-                        height: 1,
-                      ),
-                    ),
+                    const SizedBox(height: 12),
                     SizedBox(
                       height: MediaQuery.sizeOf(context).height < 400
                           ? 170

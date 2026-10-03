@@ -34,17 +34,27 @@ class _Audio extends AudioService {
 }
 
 class _Notifications extends NotificationService {
+  int schedules = 0;
+  int shows = 0;
+  bool? lastShownSound;
+
   @override
   bool get isSupported => false;
   @override
   Future<void> cancelAll() async {}
   @override
-  Future<void> showFeedReminder({bool playSound = true}) async {}
+  Future<void> showFeedReminder({bool playSound = true}) async {
+    shows++;
+    lastShownSound = playSound;
+  }
+
   @override
   Future<void> scheduleFeedReminder(
     DateTime when, {
     bool playSound = true,
-  }) async {}
+  }) async {
+    schedules++;
+  }
 }
 
 class _PendingStorage extends StorageService {
@@ -225,11 +235,18 @@ void main() {
   testWidgets(
     'a damaged display preference must not overwrite reminder policy',
     (tester) async {
+      var now = DateTime(2026, 10, 3, 20, 45);
       SharedPreferences.setMockInitialValues({
         StorageKeys.feedIntervalMinutes: 60,
         StorageKeys.nightModeEnabled: true,
+        StorageKeys.nightStartTime: '21:00',
+        StorageKeys.nightEndTime: '05:00',
         StorageKeys.soundEnabled: false,
+        StorageKeys.soundLoopEnabled: false,
         StorageKeys.burnInProtectionEnabled: 'invalid-bool',
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(time: now.subtract(const Duration(minutes: 30))).toJson(),
+        ]),
       });
       final storage = StorageService();
       final audio = _Audio();
@@ -238,20 +255,60 @@ void main() {
         storage: storage,
         audioService: audio,
         notificationService: notifications,
+        clock: () => now,
         startTimer: false,
       );
       final settings = SettingsProvider(storage: storage);
-      await Future.wait([feed.ready, settings.ready]);
-      expect(feed.feedIntervalMinutes, 60);
-      expect(settings.error, isNotNull);
-      await _mountApp(tester, storage, feed, settings, audio, notifications);
-      final runningInterval = feed.feedIntervalMinutes;
-      final persistedInterval = await storage.getFeedInterval();
-      await tester.pumpWidget(const SizedBox.shrink());
-      feed.dispose();
-      settings.dispose();
-      expect(persistedInterval, 60);
-      expect(runningInterval, 60);
+      try {
+        await Future.wait([feed.ready, settings.ready]);
+        expect(settings.error, isNull);
+        expect(settings.isAvailable, isTrue);
+        expect(settings.feedIntervalMinutes, 60);
+        expect(settings.nightModeEnabled, isTrue);
+        expect(settings.nightStartTime, '21:00');
+        expect(settings.nightEndTime, '05:00');
+        expect(settings.soundEnabled, isFalse);
+        expect(settings.soundLoopEnabled, isFalse);
+        expect(
+          settings.burnInProtectionEnabled,
+          AppDefaults.burnInProtectionEnabled,
+        );
+
+        await _mountApp(tester, storage, feed, settings, audio, notifications);
+        expect(feed.error, isNull);
+        expect(feed.feedIntervalMinutes, 60);
+        expect(feed.timeRemaining, const Duration(minutes: 30));
+        // The deadline falls inside the saved quiet window. Synchronizing the
+        // recovered settings must not replace it with the default night policy.
+        expect(notifications.schedules, 0);
+        now = DateTime(2026, 10, 3, 21, 30);
+        await feed.refresh();
+        await tester.pump();
+        expect(feed.state, FeedState.alerting);
+        expect(notifications.shows, 0);
+        expect(audio.playing, isFalse);
+
+        // The saved end is 05:00, earlier than the default. Its overdue visual
+        // notification may now appear, while the saved sound-off policy stays.
+        now = DateTime(2026, 10, 4, 5, 30);
+        await feed.refresh();
+        await tester.pump();
+        expect(notifications.shows, 1);
+        expect(notifications.lastShownSound, isFalse);
+        expect(audio.playing, isFalse);
+        expect(await storage.getFeedInterval(), 60);
+        expect(await storage.getNightModeEnabled(), isTrue);
+        expect(await storage.getNightStartTime(), '21:00');
+        expect(await storage.getNightEndTime(), '05:00');
+        expect(await storage.getSoundEnabled(), isFalse);
+        expect(await storage.getSoundLoopEnabled(), isFalse);
+        expect(await storage.getFeedHistory(), hasLength(1));
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        feed.dispose();
+        settings.dispose();
+        await tester.pump();
+      }
     },
   );
 

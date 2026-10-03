@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,8 +46,39 @@ Future<void> _slideToRecord(WidgetTester tester) async {
   await tester.dragFrom(start, Offset(track.right - 4 - start.dx, 0));
 }
 
+Future<void> _requireDisposableAndroidEmulator() async {
+  expect(Platform.isAndroid, isTrue, reason: 'Run on an Android emulator.');
+  // Records are mocked, but the native tests replace the app's real reminders.
+  // Reject physical devices before initializing or cancelling notifications.
+  final emulator = await Process.run('/system/bin/getprop', ['ro.boot.qemu']);
+  expect(emulator.exitCode, 0);
+  expect(
+    emulator.stdout.toString().trim(),
+    '1',
+    reason: 'Use a disposable Android emulator without existing user data.',
+  );
+}
+
+Future<void> _waitForNativeEffects(
+  WidgetTester tester,
+  Future<bool> Function() completed, {
+  required String reason,
+}) async {
+  final elapsed = Stopwatch()..start();
+  while (!await completed()) {
+    if (elapsed.elapsed >= const Duration(seconds: 15)) {
+      fail(reason);
+    }
+    // The live binding and audio plugin keep scheduling frames while looping.
+    // Wait for the actual service result instead of waiting for global idle.
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(_requireDisposableAndroidEmulator);
 
   testWidgets('Android feeding, navigation and settings smoke test', (
     tester,
@@ -207,6 +239,16 @@ void main() {
       addTearDown(settings.dispose);
       await Future.wait([feed.ready, settings.ready]);
       expect(feed.state, FeedState.alerting);
+      final plugin = FlutterLocalNotificationsPlugin();
+      await _waitForNativeEffects(
+        tester,
+        () async =>
+            audio.isPlaying &&
+            (await plugin.getActiveNotifications()).any(
+              (notification) => notification.id == 0,
+            ),
+        reason: 'The native audio and foreground reminder did not start.',
+      );
       expect(audio.isPlaying, isTrue);
 
       await tester.pumpWidget(
@@ -236,6 +278,13 @@ void main() {
       }
       expect(feed.feedHistory, hasLength(2));
       expect(feed.state, FeedState.normal);
+      await _waitForNativeEffects(
+        tester,
+        () async =>
+            !audio.isPlaying &&
+            (await plugin.pendingNotificationRequests()).length == 1,
+        reason: 'Saving must stop native audio and schedule the next reminder.',
+      );
       expect(audio.isPlaying, isFalse);
       expect(find.byKey(const ValueKey('feed-slide-undo')), findsOneWidget);
       expect(

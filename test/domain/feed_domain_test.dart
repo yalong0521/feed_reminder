@@ -221,9 +221,9 @@ class FailingAcknowledgement extends StorageService {
   bool fail = true;
 
   @override
-  Future<void> setAcknowledgedFeedTime(DateTime? time) async {
+  Future<void> setAcknowledgedFeedRecord(FeedRecord? record) async {
     if (fail) throw StateError('acknowledgement write failed');
-    await super.setAcknowledgedFeedTime(time);
+    await super.setAcknowledgedFeedRecord(record);
   }
 }
 
@@ -745,6 +745,51 @@ void main() {
     },
   );
 
+  for (final restart in [false, true]) {
+    testWidgets(
+      'a completed stop only acknowledges its own record at the same time '
+      '(restart: $restart)',
+      (tester) async {
+        storage = StorageService();
+        final time = now.subtract(const Duration(hours: 4));
+        SharedPreferences.setMockInitialValues({
+          StorageKeys.feedHistory: jsonEncode([
+            FeedRecord(id: 'first-record', time: time).toJson(),
+            FeedRecord(id: 'second-record', time: time).toJson(),
+          ]),
+        });
+        var provider = createProvider();
+        try {
+          await tester.pump();
+          await provider.ready;
+          final acknowledgedId = provider.feedHistory.first.id;
+          await provider.stopAlert();
+          expect(provider.isAlertAcknowledged, isTrue);
+          if (restart) {
+            provider.dispose();
+            await tester.pump();
+            provider = createProvider();
+            await tester.pump();
+            await provider.ready;
+            expect(provider.feedHistory.first.id, acknowledgedId);
+            expect(provider.isAlertAcknowledged, isTrue);
+          }
+
+          await provider.deleteFeedRecord(0);
+          await tester.pump();
+          expect(provider.lastFeedTime, time);
+          expect(provider.feedHistory.single.id, isNot(acknowledgedId));
+          expect(provider.isAlertAcknowledged, isFalse);
+          expect(audio.playing, isTrue);
+          expect(audio.plays, 2);
+        } finally {
+          provider.dispose();
+          await tester.pump();
+        }
+      },
+    );
+  }
+
   testWidgets(
     'a timer tick handles clock rollback without an explicit refresh',
     (tester) async {
@@ -850,6 +895,367 @@ void main() {
       await restored.ready;
       expect(restored.feedHistory, isEmpty);
       expect(restored.lastFeedTime, isNull);
+    },
+  );
+
+  test(
+    'damaged optional preferences cannot block valid history or subsequent saves',
+    () async {
+      final history = jsonEncode([
+        FeedRecord(time: now.subtract(const Duration(hours: 1))).toJson(),
+      ]);
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: history,
+        StorageKeys.themeMode: 1,
+        StorageKeys.feedIntervalMinutes: '180',
+        StorageKeys.nightModeEnabled: 'false',
+        StorageKeys.nightStartTime: 2200,
+        StorageKeys.nightEndTime: true,
+        StorageKeys.soundEnabled: 1,
+        StorageKeys.soundLoopEnabled: ['true'],
+        StorageKeys.burnInProtectionEnabled: 1.5,
+      });
+      final settings = SettingsProvider(storage: storage);
+      final provider = createProvider();
+      addTearDown(settings.dispose);
+      addTearDown(provider.dispose);
+      await Future.wait([settings.ready, provider.ready]);
+
+      expect(settings.isAvailable, isTrue);
+      expect(settings.error, isNull);
+      expect(settings.themeMode, AppDefaults.themeMode);
+      expect(settings.feedIntervalMinutes, AppDefaults.feedIntervalMinutes);
+      expect(settings.nightModeEnabled, AppDefaults.nightModeEnabled);
+      expect(settings.nightStartTime, AppDefaults.nightStartTime);
+      expect(settings.nightEndTime, AppDefaults.nightEndTime);
+      expect(settings.soundEnabled, AppDefaults.soundEnabled);
+      expect(settings.soundLoopEnabled, AppDefaults.soundLoopEnabled);
+      expect(
+        settings.burnInProtectionEnabled,
+        AppDefaults.burnInProtectionEnabled,
+      );
+      expect(provider.error, isNull);
+      expect(provider.feedHistory, hasLength(1));
+      expect(provider.timeRemaining, const Duration(hours: 2));
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          StorageKeys.feedHistory,
+        ),
+        history,
+      );
+
+      await provider.recordFeed();
+      await settings.updateSettings(
+        feedIntervalMinutes: 90,
+        nightModeEnabled: true,
+        nightStartTime: '23:00',
+        nightEndTime: '07:00',
+        soundEnabled: false,
+        soundLoopEnabled: false,
+        burnInProtectionEnabled: true,
+      );
+      expect(await storage.getFeedHistory(), hasLength(2));
+      expect(await storage.getFeedInterval(), 90);
+      expect(await storage.getNightModeEnabled(), isTrue);
+      expect(await storage.getNightStartTime(), '23:00');
+      expect(await storage.getNightEndTime(), '07:00');
+      expect(await storage.getSoundEnabled(), isFalse);
+      expect(await storage.getSoundLoopEnabled(), isFalse);
+      expect(await storage.getBurnInProtectionEnabled(), isTrue);
+    },
+  );
+
+  test(
+    'legacy IDs are stable, distinct and avoid explicit identity collisions',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      final reserved = 'legacy-${time.millisecondsSinceEpoch}-0';
+      final history = jsonEncode([
+        {'time': time.millisecondsSinceEpoch},
+        {'time': time.millisecondsSinceEpoch},
+        {'id': reserved, 'time': time.millisecondsSinceEpoch},
+      ]);
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: history,
+      });
+      final provider = createProvider();
+      addTearDown(provider.dispose);
+      await provider.ready;
+      final identities = provider.feedHistory
+          .map((record) => record.id)
+          .toList();
+      expect(identities.toSet(), hasLength(3));
+      expect(identities, contains(reserved));
+      expect(identities.first, isNot(reserved));
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.feedHistory.map((record) => record.id), identities);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          StorageKeys.feedHistory,
+        ),
+        history,
+      );
+      await provider.recordFeed();
+      expect(
+        (await storage.getFeedHistory()).skip(1).map((record) => record.id),
+        identities,
+      );
+    },
+  );
+
+  test(
+    'equal-time history retains the active identity through normalization and reload',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      final seed = [
+        for (var index = 0; index < 60; index++)
+          FeedRecord(id: 'same-time-$index', time: time),
+      ];
+      await storage.setFeedHistory(seed);
+      final provider = createProvider();
+      addTearDown(provider.dispose);
+      await provider.ready;
+      expect(
+        provider.feedHistory.map((record) => record.id),
+        seed.map((record) => record.id),
+      );
+      await provider.addFeedRecordWithTime(
+        time.subtract(const Duration(hours: 1)),
+      );
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(
+        restored.feedHistory.take(60).map((record) => record.id),
+        seed.map((record) => record.id),
+      );
+    },
+  );
+
+  test(
+    'legacy confirmation and ID-less history migrate before mutation and survive undo',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          {'time': time.millisecondsSinceEpoch},
+          {'time': time.millisecondsSinceEpoch},
+        ]),
+        'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+      });
+      var provider = createProvider();
+      try {
+        await provider.ready;
+        final acknowledgedId = provider.feedHistory.first.id;
+        expect(provider.isAlertAcknowledged, isTrue);
+        expect(
+          (await SharedPreferences.getInstance()).containsKey(
+            'acknowledgedFeedRecord',
+          ),
+          isFalse,
+        );
+        await provider.recordFeed();
+        expect(provider.isAlertAcknowledged, isFalse);
+        await provider.deleteFeedRecord(0);
+        expect(provider.feedHistory.first.id, acknowledgedId);
+        expect(provider.isAlertAcknowledged, isTrue);
+        provider.dispose();
+        provider = createProvider();
+        await provider.ready;
+        expect(provider.feedHistory.first.id, acknowledgedId);
+        expect(provider.isAlertAcknowledged, isTrue);
+        await provider.deleteFeedRecord(0);
+        expect(provider.isAlertAcknowledged, isFalse);
+        provider.dispose();
+        provider = createProvider();
+        await provider.ready;
+        expect(provider.feedHistory.single.id, isNot(acknowledgedId));
+        expect(provider.isAlertAcknowledged, isFalse);
+      } finally {
+        provider.dispose();
+      }
+    },
+  );
+
+  test(
+    'a new acknowledgement of ID-less legacy history survives a read-only restart',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      final history = jsonEncode([
+        {'time': time.millisecondsSinceEpoch},
+      ]);
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: history,
+      });
+      final provider = createProvider();
+      await provider.ready;
+      final acknowledgedId = provider.feedHistory.single.id;
+      await provider.stopAlert();
+      provider.dispose();
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.feedHistory.single.id, acknowledgedId);
+      expect(restored.isAlertAcknowledged, isTrue);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          StorageKeys.feedHistory,
+        ),
+        history,
+      );
+    },
+  );
+
+  test(
+    'failed legacy acknowledgement upgrade leaves history intact and permits safe retry',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      final history = jsonEncode([
+        {'time': time.millisecondsSinceEpoch},
+        {'time': time.millisecondsSinceEpoch},
+      ]);
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: history,
+        'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+      });
+      final failing = FailingAcknowledgement();
+      final provider = createProvider(source: failing);
+      addTearDown(provider.dispose);
+      await provider.ready;
+      final acknowledgedId = provider.feedHistory.first.id;
+      await expectLater(provider.deleteFeedRecord(0), throwsStateError);
+      expect(provider.feedHistory, hasLength(2));
+      expect(provider.feedHistory.first.id, acknowledgedId);
+      expect(provider.isAlertAcknowledged, isTrue);
+      expect(provider.isSaving, isFalse);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          StorageKeys.feedHistory,
+        ),
+        history,
+      );
+      final restored = createProvider(source: failing);
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.feedHistory.first.id, acknowledgedId);
+      expect(restored.isAlertAcknowledged, isTrue);
+
+      failing.fail = false;
+      await provider.deleteFeedRecord(0);
+      expect(provider.feedHistory.single.id, isNot(acknowledgedId));
+      expect(provider.isAlertAcknowledged, isFalse);
+      final afterRetry = createProvider(source: failing);
+      addTearDown(afterRetry.dispose);
+      await afterRetry.ready;
+      expect(afterRetry.isAlertAcknowledged, isFalse);
+      expect(afterRetry.feedHistory, hasLength(1));
+    },
+  );
+
+  test(
+    'last-time-only legacy data retains new acknowledgement through restart and undo',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.lastFeedTime: time.millisecondsSinceEpoch,
+      });
+      final provider = createProvider();
+      await provider.ready;
+      final acknowledgedId = provider.feedHistory.single.id;
+      await provider.stopAlert();
+      provider.dispose();
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.feedHistory.single.id, acknowledgedId);
+      expect(restored.isAlertAcknowledged, isTrue);
+      await restored.recordFeed();
+      await restored.deleteFeedRecord(0);
+      expect(restored.isAlertAcknowledged, isTrue);
+    },
+  );
+
+  test(
+    'unbound legacy acknowledgement cannot transfer to an older record after deletion',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(
+            id: 'latest',
+            time: now.subtract(const Duration(hours: 1)),
+          ).toJson(),
+          FeedRecord(id: 'older', time: time).toJson(),
+        ]),
+        'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+      });
+      final provider = createProvider();
+      await provider.ready;
+      expect(provider.isAlertAcknowledged, isFalse);
+      await provider.deleteFeedRecord(0);
+      expect(provider.isAlertAcknowledged, isFalse);
+      provider.dispose();
+      final restored = createProvider();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.feedHistory.single.id, 'older');
+      expect(restored.isAlertAcknowledged, isFalse);
+      expect(await storage.getAcknowledgedFeedTime(), isNull);
+    },
+  );
+
+  for (final malformed in <Object>['not-json', '{}', '{"id":"","time":0}', 1]) {
+    test(
+      'damaged new acknowledgement $malformed cannot fall back to an old timestamp',
+      () async {
+        final time = now.subtract(const Duration(hours: 4));
+        final history = jsonEncode([
+          FeedRecord(id: 'cycle', time: time).toJson(),
+        ]);
+        SharedPreferences.setMockInitialValues({
+          StorageKeys.feedHistory: history,
+          'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+          'acknowledgedFeedRecord': malformed,
+        });
+        await expectLater(storage.getFeedAcknowledgement(), throwsA(anything));
+        final provider = createProvider();
+        addTearDown(provider.dispose);
+        await provider.ready;
+        expect(provider.error, isNotNull);
+        expect(provider.isAlertAcknowledged, isFalse);
+        await expectLater(provider.recordFeed(), throwsStateError);
+        expect(
+          (await SharedPreferences.getInstance()).getString(
+            StorageKeys.feedHistory,
+          ),
+          history,
+        );
+      },
+    );
+  }
+
+  test(
+    'acknowledgement requires both the record identity and its time',
+    () async {
+      final time = now.subtract(const Duration(hours: 4));
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedHistory: jsonEncode([
+          FeedRecord(id: 'cycle', time: time).toJson(),
+        ]),
+        'acknowledgedFeedRecord': jsonEncode({
+          'id': 'cycle',
+          'time': time
+              .subtract(const Duration(minutes: 1))
+              .millisecondsSinceEpoch,
+        }),
+      });
+      final provider = createProvider();
+      addTearDown(provider.dispose);
+      await provider.ready;
+      expect(provider.error, isNull);
+      expect(provider.isAlertAcknowledged, isFalse);
     },
   );
 

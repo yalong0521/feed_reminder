@@ -2,9 +2,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../services/privacy_service.dart';
+import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/privacy_policy.dart';
 import '../widgets/app_controls.dart';
+import '../widgets/app_page_header.dart';
 import '../widgets/app_surface.dart';
 
 Future<void> showPrivacyPolicy(BuildContext context) async {
@@ -62,11 +64,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             '隐私政策',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w500,
-                              color: colors.textPrimary,
-                            ),
+                            style: AppTypography.sectionTitle(context),
                           ),
                         ),
                       ],
@@ -82,29 +80,20 @@ class PrivacyPolicyScreen extends StatelessWidget {
                           children: [
                             Text(
                               PrivacyPolicy.title,
-                              style: TextStyle(
-                                fontSize: 28,
-                                height: 1.4,
-                                color: colors.primary,
+                              style: AppTypography.pageTitle(
+                                context,
+                                compact: AppPageLayout.compact(context),
                               ),
                             ),
                             const SizedBox(height: 12),
                             Text(
                               PrivacyPolicy.effectiveDate,
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.6,
-                                color: colors.textSecondary,
-                              ),
+                              style: AppTypography.caption(context),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               PrivacyPolicy.introduction,
-                              style: TextStyle(
-                                fontSize: 16,
-                                height: 1.7,
-                                color: colors.textPrimary,
-                              ),
+                              style: AppTypography.body(context),
                             ),
                             for (final section in PrivacyPolicy.sections) ...[
                               const SizedBox(height: 28),
@@ -112,22 +101,15 @@ class PrivacyPolicyScreen extends StatelessWidget {
                                 header: true,
                                 child: Text(
                                   section.title,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    height: 1.5,
-                                    fontWeight: FontWeight.w500,
-                                    color: colors.textPrimary,
-                                  ),
+                                  style: AppTypography.sectionTitle(context),
                                 ),
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 section.content,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  height: 1.7,
-                                  color: colors.textSecondary,
-                                ),
+                                style: AppTypography.body(
+                                  context,
+                                ).copyWith(color: colors.textSecondary),
                               ),
                             ],
                           ],

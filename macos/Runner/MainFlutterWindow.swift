@@ -42,9 +42,8 @@ class MainFlutterWindow: NSWindow {
       )
     }
 
-    // Set window size constraints for tablet-like experience
-    let minSize = NSSize(width: 400, height: 700)
-    self.minSize = minSize
+    // Match the smallest responsive content size, excluding window chrome.
+    self.contentMinSize = NSSize(width: 400, height: 280)
     self.setContentSize(NSSize(width: 450, height: 800))
     self.center()
 

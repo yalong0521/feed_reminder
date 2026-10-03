@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/constants.dart';
+import '../theme/app_typography.dart';
 import '../utils/time_utils.dart';
 
 /// Places the current time between the last feeding and its next reminder.
@@ -45,15 +46,11 @@ class CountdownTimeline extends StatelessWidget {
     final lastLabel = '上次 ${format(last)}';
     final nowLabel = '现在 ${format(now)}';
     final nextLabel = '${now.isBefore(next) ? '下一次' : '原定'} ${format(next)}';
-    final nowStyle = DefaultTextStyle.of(context).style.copyWith(
-      color: color,
-      fontSize: 12,
-      height: 1.3,
-      fontWeight: FontWeight.w500,
-    );
+    final nowStyle = DefaultTextStyle.of(context).style
+        .merge(AppTypography.supporting(context))
+        .copyWith(color: color, fontWeight: FontWeight.w500);
     final endpointStyle = nowStyle.copyWith(
       color: highContrast ? palette.textPrimary : palette.textSecondary,
-      fontSize: 13,
       fontWeight: FontWeight.w400,
     );
     final position = 1 - _progress;

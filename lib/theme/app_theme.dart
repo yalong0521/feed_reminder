@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../utils/constants.dart';
+import 'app_typography.dart';
 
 abstract final class AppTheme {
   static ThemeData get light => _build(AppPalette.light, Brightness.light);
@@ -33,10 +34,19 @@ abstract final class AppTheme {
       splashColor: Colors.transparent,
       highlightColor: Colors.transparent,
       hoverColor: Colors.transparent,
-      textTheme: base.textTheme.apply(
-        bodyColor: p.textPrimary,
-        displayColor: p.textPrimary,
-      ),
+      textTheme: base.textTheme
+          .apply(bodyColor: p.textPrimary, displayColor: p.textPrimary)
+          .copyWith(
+            bodyLarge: base.textTheme.bodyLarge!
+                .merge(AppTypography.bodyBase)
+                .copyWith(color: p.textPrimary),
+            bodyMedium: base.textTheme.bodyMedium!
+                .merge(AppTypography.bodyBase)
+                .copyWith(color: p.textPrimary),
+            bodySmall: base.textTheme.bodySmall!
+                .merge(AppTypography.captionBase)
+                .copyWith(color: p.textSecondary),
+          ),
       iconTheme: IconThemeData(color: p.textSecondary),
       dividerColor: p.border,
       dividerTheme: DividerThemeData(
@@ -52,7 +62,7 @@ abstract final class AppTheme {
         barBackgroundColor: p.surface,
         textTheme: CupertinoTextThemeData(
           primaryColor: p.primary,
-          textStyle: TextStyle(fontSize: 16, color: p.textPrimary),
+          textStyle: AppTypography.bodyBase.copyWith(color: p.textPrimary),
           pickerTextStyle: TextStyle(fontSize: 21, color: p.textPrimary),
           dateTimePickerTextStyle: TextStyle(
             fontSize: 20,
@@ -70,7 +80,7 @@ abstract final class AppTheme {
           color: p.surface,
           borderRadius: BorderRadius.circular(12),
         ),
-        textStyle: TextStyle(color: p.textPrimary, fontSize: 13),
+        textStyle: AppTypography.captionBase.copyWith(color: p.textPrimary),
       ),
       pageTransitionsTheme: PageTransitionsTheme(
         builders: {

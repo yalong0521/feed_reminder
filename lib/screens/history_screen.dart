@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 
 import '../models/feed_record.dart';
 import '../providers/feed_provider.dart';
+import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
 import '../widgets/app_message_dialog.dart';
+import '../widgets/app_page_header.dart';
 
 typedef _HistorySnapshot = ({
   List<FeedRecord> records,
@@ -125,18 +127,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
             return LayoutBuilder(
               builder: (context, constraints) {
-                final compact = constraints.maxHeight <= 500;
+                final compact = AppPageLayout.compact(context);
                 final largeText =
                     MediaQuery.textScalerOf(context).scale(16) > 22;
                 // The landscape app shell already carries the daily summary.
                 // Only a broad page gets a second column within the journal.
                 final sidebar = !largeText && constraints.maxWidth >= 1080;
-                final horizontalPadding = constraints.maxWidth < 400
-                    ? 20.0
-                    : constraints.maxWidth >= 1080
-                    ? 48.0
-                    : 28.0;
-                final topPadding = compact ? 18.0 : 36.0;
+                final horizontalPadding = AppPageLayout.contentPadding(
+                  constraints.maxWidth,
+                );
+                final topPadding = AppPageLayout.topPadding(compact);
                 final colors = AppPalette.of(context);
 
                 final journal = CustomScrollView(
@@ -144,7 +144,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: EdgeInsets.only(bottom: compact ? 18 : 32),
+                        padding: EdgeInsets.only(
+                          bottom: AppPageLayout.headerGap(compact),
+                        ),
                         child: _HistoryHeader(
                           compact: compact,
                           saving: snapshot.saving,
@@ -187,10 +189,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               Expanded(
                                 child: Text(
                                   snapshot.error!,
-                                  style: TextStyle(
-                                    color: colors.textPrimary,
-                                    height: 1.6,
-                                  ),
+                                  style: AppTypography.body(context),
                                 ),
                               ),
                             ],
@@ -240,11 +239,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         padding: const EdgeInsets.only(top: 4, bottom: 28),
                         child: Text(
                           '记录保存在这台设备上，历史记录会持续保留。',
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 12,
-                            height: 1.6,
-                          ),
+                          style: AppTypography.caption(context),
                         ),
                       ),
                     ),
@@ -307,68 +302,28 @@ class _HistoryHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppPalette.of(context);
-    final heading = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          AppStrings.history,
-          style: TextStyle(
-            fontSize: compact ? 28 : 34,
-            height: 1.2,
-            fontWeight: FontWeight.w600,
-            letterSpacing: .5,
-            color: colors.primary,
-          ),
-        ),
-        if (!compact) ...[
-          const SizedBox(height: 10),
-          Text(
-            '把每一次照顾，留在时间里。',
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: 14,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ],
-    );
     final add = DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: colors.primary),
       ),
       child: AppButton(
         key: const ValueKey('history-backfill-button'),
         compact: true,
         surface: false,
-        radius: 30,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         onPressed: saving ? null : onAdd,
         child: Text(
           '补记喂奶',
-          style: TextStyle(color: colors.primary, fontWeight: FontWeight.w500),
+          style: AppTypography.button.copyWith(color: colors.primary),
         ),
       ),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final largeText = MediaQuery.textScalerOf(context).scale(16) > 20;
-        if (constraints.maxWidth < (largeText ? 470 : 360)) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [heading, const SizedBox(height: 18), add],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(child: heading),
-            const SizedBox(width: 20),
-            add,
-          ],
-        );
-      },
+    return AppPageHeader(
+      title: AppStrings.history,
+      subtitle: '把每一次照顾，留在时间里。',
+      compact: compact,
+      trailing: add,
     );
   }
 }
@@ -416,24 +371,14 @@ class _HistorySummary extends StatelessWidget {
             color: colors.border,
             margin: EdgeInsets.symmetric(vertical: compact ? 22 : 36),
           ),
-          Text(
-            '按自己的节奏，\n慢慢长大。',
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: 14,
-              height: 1.8,
-            ),
-          ),
+          Text('按自己的节奏，\n慢慢长大。', style: AppTypography.supporting(context)),
         ],
       );
     }
     return Container(
       padding: EdgeInsets.symmetric(vertical: compact ? 12 : 20),
       decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: colors.border),
-          bottom: BorderSide(color: colors.border),
-        ),
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,13 +406,7 @@ class _CountSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppPalette.of(context);
-    final caption = Text(
-      label,
-      style: TextStyle(
-        color: colors.textSecondary,
-        fontSize: compact ? 13 : 15,
-      ),
-    );
+    final caption = Text(label, style: AppTypography.supporting(context));
     final value = Text.rich(
       TextSpan(
         children: [
@@ -481,10 +420,7 @@ class _CountSummary extends StatelessWidget {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          TextSpan(
-            text: ' 次',
-            style: TextStyle(color: colors.textSecondary, fontSize: 14),
-          ),
+          TextSpan(text: ' 次', style: AppTypography.supporting(context)),
         ],
       ),
       style: const TextStyle(height: 1.1),
@@ -535,7 +471,7 @@ class _DeleteRecordDetail extends StatelessWidget {
         children: [
           Text(
             _fullDate(record.time),
-            style: TextStyle(color: colors.textSecondary, fontSize: 14),
+            style: AppTypography.supporting(context),
           ),
           Text(
             TimeUtils.formatTime(record.time),
@@ -567,7 +503,6 @@ class _DayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = AppPalette.of(context);
     final yesterday = DateTime(
       referenceTime.year,
       referenceTime.month,
@@ -586,19 +521,11 @@ class _DayHeader extends StatelessWidget {
           Expanded(
             child: Text(
               '$relative${_fullDate(date)}',
-              style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 14,
-                height: 1.5,
-                fontWeight: FontWeight.w500,
-              ),
+              style: AppTypography.sectionTitle(context),
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            '$count 条',
-            style: TextStyle(color: colors.textSecondary, fontSize: 12),
-          ),
+          Text('$count 条', style: AppTypography.caption(context)),
         ],
       ),
     );
@@ -655,9 +582,8 @@ class _RecordRow extends StatelessWidget {
                       if (isLatest)
                         Text(
                           '最近一次',
-                          style: TextStyle(
+                          style: AppTypography.caption(context).copyWith(
                             color: colors.primary,
-                            fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -666,11 +592,7 @@ class _RecordRow extends StatelessWidget {
                   const SizedBox(height: 5),
                   Text(
                     _intervalLabel(record.intervalFromPrevious),
-                    style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: 12,
-                      height: 1.5,
-                    ),
+                    style: AppTypography.caption(context),
                   ),
                 ],
               ),
@@ -719,29 +641,16 @@ class _EmptyHistory extends StatelessWidget {
         children: [
           Icon(CupertinoIcons.doc_text, size: 40, color: colors.primary),
           const SizedBox(height: 24),
-          Text(
-            '第一条记录，从这里开始。',
-            style: TextStyle(
-              fontSize: 22,
-              height: 1.4,
-              fontWeight: FontWeight.w600,
-              color: colors.textPrimary,
-            ),
-          ),
+          Text('第一条记录，从这里开始。', style: AppTypography.sectionTitle(context)),
           const SizedBox(height: 12),
           Text(
             '还没有喂奶记录\n回到计时页滑动记录，或补记之前的喂奶时间。',
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: 14,
-              height: 1.8,
-            ),
+            style: AppTypography.supporting(context),
           ),
           const SizedBox(height: 24),
           AppButton(
             key: const ValueKey('history-first-record'),
             filled: true,
-            radius: 28,
             onPressed: saving ? null : onAdd,
             child: const Text('添加第一条记录'),
           ),

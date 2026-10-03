@@ -62,6 +62,9 @@ class FeedProvider extends ChangeNotifier {
   String? _audioError;
   DateTime? _lastFeedTime;
   DateTime? _acknowledgedFeedTime;
+  String? _acknowledgedRecordId;
+  bool _needsAcknowledgementUpgrade = false;
+  FeedRecord? _legacyAcknowledgedRecord;
   Duration _timeRemaining = const Duration(
     minutes: AppDefaults.feedIntervalMinutes,
   );
@@ -123,10 +126,11 @@ class FeedProvider extends ChangeNotifier {
       !_mustStopAudio &&
       _audioService.hasPlaybackError;
 
-  bool _wasAcknowledged(DateTime? time) =>
-      time != null &&
+  bool _wasAcknowledged(FeedRecord? record) =>
+      record != null &&
+      record.id == _acknowledgedRecordId &&
       _acknowledgedFeedTime?.millisecondsSinceEpoch ==
-          time.millisecondsSinceEpoch;
+          record.time.millisecondsSinceEpoch;
 
   String _notificationFailure(Object error) => switch (error) {
     PlatformException(code: 'notification_permission_denied') =>
@@ -150,7 +154,7 @@ class FeedProvider extends ChangeNotifier {
       final nightEnd = await _storage.getNightEndTime();
       final sound = await _storage.getSoundEnabled();
       final loop = await _storage.getSoundLoopEnabled();
-      final acknowledgedFeed = await _storage.getAcknowledgedFeedTime();
+      final acknowledgement = await _storage.getFeedAcknowledgement();
       await _repository.load();
       if (_disposed) return;
       if (settingsRevision == _settingsRevision) {
@@ -162,8 +166,20 @@ class FeedProvider extends ChangeNotifier {
         _soundLoopEnabled = loop;
       }
       _lastFeedTime = _repository.lastFeedTime;
-      _acknowledgedFeedTime = acknowledgedFeed;
-      _alertAcknowledged = _wasAcknowledged(_lastFeedTime);
+      _acknowledgedFeedTime = acknowledgement?.time;
+      _acknowledgedRecordId = acknowledgement?.recordId;
+      _needsAcknowledgementUpgrade =
+          acknowledgement != null && acknowledgement.recordId == null;
+      if (acknowledgement != null &&
+          acknowledgement.recordId == null &&
+          acknowledgement.time.millisecondsSinceEpoch ==
+              _lastFeedTime?.millisecondsSinceEpoch) {
+        // Bind timestamp-only legacy intent once. A later deletion must not
+        // transfer that acknowledgement to another record at the same time.
+        _acknowledgedRecordId = feedHistory.firstOrNull?.id;
+        _legacyAcknowledgedRecord = feedHistory.firstOrNull;
+      }
+      _alertAcknowledged = _wasAcknowledged(feedHistory.firstOrNull);
       _calculateCountdown();
       _isInitialized = true;
       // Native notification callbacks can be slow. Local readiness and the
@@ -300,8 +316,11 @@ class FeedProvider extends ChangeNotifier {
       throw StateError(_audioStopError);
     }
     try {
-      await _storage.setAcknowledgedFeedTime(acknowledgedFeed);
+      await _storage.setAcknowledgedFeedRecord(acknowledgedRecord);
       _acknowledgedFeedTime = acknowledgedFeed;
+      _acknowledgedRecordId = acknowledgedRecord?.id;
+      _needsAcknowledgementUpgrade = false;
+      _legacyAcknowledgedRecord = null;
       if (_error == _acknowledgementError) {
         _error = null;
         _notify();
@@ -340,6 +359,18 @@ class FeedProvider extends ChangeNotifier {
           if (_loadFailed) throw StateError('记录尚未成功读取，无法覆盖原有数据');
           try {
             final previousRecord = feedHistory.firstOrNull;
+            if (_needsAcknowledgementUpgrade) {
+              // Commit the legacy identity before changing history. Otherwise
+              // deleting it could transfer its timestamp-only confirmation to
+              // a different record on restart. An upgrade failure leaves the
+              // original history intact and can be retried safely.
+              await _storage.setAcknowledgedFeedRecord(
+                _legacyAcknowledgedRecord,
+              );
+              _needsAcknowledgementUpgrade = false;
+              _legacyAcknowledgedRecord = null;
+              if (_disposed) return;
+            }
             await change();
             if (_disposed) return;
             final latestRecord = feedHistory.firstOrNull;
@@ -356,7 +387,7 @@ class FeedProvider extends ChangeNotifier {
               // stop is still pending. Keep that intent until it succeeds or
               // the stop's existing failure path rolls it back.
               _alertAcknowledged =
-                  stoppingThisCycle || _wasAcknowledged(latest);
+                  stoppingThisCycle || _wasAcknowledged(latestRecord);
             }
             _lastFeedTime = latest;
             _error = null;

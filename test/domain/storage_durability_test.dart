@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:feed_reminder/models/feed_record.dart';
 import 'package:feed_reminder/providers/settings_provider.dart';
@@ -189,6 +190,113 @@ void main() {
       await restored.load();
       expect(restored.records, isEmpty);
       expect(restored.lastFeedTime, isNull);
+    },
+  );
+
+  test(
+    'a rejected atomic acknowledgement preserves its saved identity and time',
+    () async {
+      final time = DateTime(2026, 10, 3, 9);
+      final previous = FeedRecord(id: 'previous', time: time);
+      final replacement = FeedRecord(
+        id: 'replacement',
+        time: time.add(const Duration(minutes: 1)),
+      );
+      final prefs = _FalliblePreferences({
+        'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+      });
+      final storage = StorageService(preferencesLoader: () async => prefs);
+      await storage.setAcknowledgedFeedRecord(previous);
+      final originalSnapshot = prefs.disk['acknowledgedFeedRecord'];
+      prefs.rejectedKeys.add('acknowledgedFeedRecord');
+      await expectLater(
+        storage.setAcknowledgedFeedRecord(replacement),
+        throwsStateError,
+      );
+      expect(prefs.cache, prefs.disk);
+      expect(prefs.disk['acknowledgedFeedRecord'], originalSnapshot);
+      final restored = StorageService(preferencesLoader: () async => prefs);
+      expect(await restored.getFeedAcknowledgement(), (
+        recordId: previous.id,
+        time: previous.time,
+      ));
+      expect(await restored.getAcknowledgedFeedTime(), previous.time);
+
+      prefs.rejectedKeys.clear();
+      await restored.setAcknowledgedFeedRecord(replacement);
+      expect(jsonDecode(prefs.disk['acknowledgedFeedRecord'] as String), {
+        'id': replacement.id,
+        'time': replacement.time.millisecondsSinceEpoch,
+      });
+      // New confirmations use one commit key; the legacy timestamp is not a
+      // separately written part of the transaction.
+      expect(prefs.disk['acknowledgedFeedTime'], time.millisecondsSinceEpoch);
+      expect(await restored.getFeedAcknowledgement(), (
+        recordId: replacement.id,
+        time: replacement.time,
+      ));
+    },
+  );
+
+  test(
+    'acknowledgement reads cannot use a rejected dirty snapshot before cache recovery',
+    () async {
+      final time = DateTime(2026, 10, 3, 9);
+      final previous = FeedRecord(id: 'previous', time: time);
+      final prefs = _FalliblePreferences({});
+      final storage = StorageService(preferencesLoader: () async => prefs);
+      await storage.setAcknowledgedFeedRecord(previous);
+      prefs.rejectedKeys.add('acknowledgedFeedRecord');
+      prefs.failReload = true;
+      await expectLater(
+        storage.setAcknowledgedFeedRecord(
+          FeedRecord(id: 'unsaved', time: time),
+        ),
+        throwsStateError,
+      );
+      await expectLater(storage.getFeedAcknowledgement(), throwsStateError);
+      prefs.failReload = false;
+      expect(await storage.getFeedAcknowledgement(), (
+        recordId: previous.id,
+        time: previous.time,
+      ));
+      expect(prefs.cache, prefs.disk);
+    },
+  );
+
+  test(
+    'an explicitly cleared acknowledgement cannot revive its legacy timestamp',
+    () async {
+      final time = DateTime(2026, 10, 3, 9);
+      final prefs = _FalliblePreferences({
+        'acknowledgedFeedTime': time.millisecondsSinceEpoch,
+      });
+      final storage = StorageService(preferencesLoader: () async => prefs);
+      expect(await storage.getAcknowledgedFeedTime(), time);
+      await storage.setAcknowledgedFeedRecord(null);
+      expect(await storage.getFeedAcknowledgement(), isNull);
+      final restored = StorageService(preferencesLoader: () async => prefs);
+      expect(await restored.getAcknowledgedFeedTime(), isNull);
+      expect(prefs.disk['acknowledgedFeedTime'], time.millisecondsSinceEpoch);
+    },
+  );
+
+  test(
+    'history and privacy confirmation keep strict type validation',
+    () async {
+      final prefs = _FalliblePreferences({
+        StorageKeys.feedHistory: 1,
+        'acceptedPrivacyPolicyVersion': true,
+      });
+      final storage = StorageService(preferencesLoader: () async => prefs);
+      await expectLater(storage.getFeedHistory(), throwsA(isA<TypeError>()));
+      await expectLater(
+        storage.getAcceptedPrivacyPolicyVersion(),
+        throwsA(isA<TypeError>()),
+      );
+      expect(prefs.cache, prefs.disk);
+      expect(prefs.disk[StorageKeys.feedHistory], 1);
+      expect(prefs.disk['acceptedPrivacyPolicyVersion'], isTrue);
     },
   );
 }

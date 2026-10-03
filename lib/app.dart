@@ -19,6 +19,7 @@ import 'services/notification_service.dart';
 import 'services/privacy_service.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
+import 'theme/app_typography.dart';
 import 'utils/constants.dart';
 import 'utils/privacy_policy.dart';
 import 'utils/time_utils.dart';
@@ -240,7 +241,9 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
   late bool _foreground;
   bool _initializingNotifications = false;
   bool _notificationPermissionsRequested = false;
-  bool _wakelock = false;
+  bool? _wakelock = false;
+  int _wakelockRevision = 0;
+  Future<void> _wakelockUpdates = Future<void>.value();
   bool _displayDimmed = false;
   bool? _systemBarsHidden;
   Future<void> _systemUiUpdates = Future<void>.value();
@@ -359,12 +362,22 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     if (!widget.enablePlatformEffects || !mounted) return;
     final enabled = _foreground && _index == 0 && _feed.lastFeedTime != null;
     if (_wakelock == enabled) return;
+    _setWakelock(enabled);
+  }
+
+  void _setWakelock(bool enabled) {
     _wakelock = enabled;
-    unawaited(
-      WakelockPlus.toggle(enable: enabled).catchError((Object error) {
+    final revision = ++_wakelockRevision;
+    // Native calls may complete out of order. Queue them so leaving the timer
+    // or disposing always turns the screen lock back on after a pending enable.
+    _wakelockUpdates = _wakelockUpdates.then((_) async {
+      try {
+        await WakelockPlus.toggle(enable: enabled);
+      } catch (error) {
+        if (_wakelockRevision == revision) _wakelock = null;
         debugPrint('Wakelock unavailable: $error');
-      }),
-    );
+      }
+    });
   }
 
   @override
@@ -419,8 +432,8 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
         }),
       );
     }
-    if (widget.enablePlatformEffects && _wakelock) {
-      unawaited(WakelockPlus.disable().catchError((Object _) {}));
+    if (widget.enablePlatformEffects && _wakelock != false) {
+      _setWakelock(false);
     }
     super.dispose();
   }
@@ -543,7 +556,12 @@ class _AppNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
-    final width = (MediaQuery.sizeOf(context).width * .257).clamp(180.0, 260.0);
+    final size = MediaQuery.sizeOf(context);
+    final compactRail = rail && size.height <= 500;
+    final baseWidth = (size.width * .257).clamp(216.0, 260.0);
+    final readableWidth = (MediaQuery.textScalerOf(context).scale(16) * 6 + 72)
+        .clamp(216.0, 260.0);
+    final width = baseWidth > readableWidth ? baseWidth : readableWidth;
     Widget destination(int page, String label, String key) {
       final active = index == page;
       return Expanded(
@@ -571,7 +589,7 @@ class _AppNavigation extends StatelessWidget {
                     child: Text(
                       label,
                       style: TextStyle(
-                        fontSize: rail ? 17 : 16,
+                        fontSize: 16,
                         color: active ? p.primary : p.textSecondary,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                       ),
@@ -594,7 +612,9 @@ class _AppNavigation extends StatelessWidget {
     final navigation = Row(
       children: [
         destination(0, '计时', 'nav-home'),
+        const SizedBox(width: 12),
         destination(1, '记录', 'nav-history'),
+        const SizedBox(width: 12),
         destination(2, '设置', 'nav-settings'),
       ],
     );
@@ -633,119 +653,153 @@ class _AppNavigation extends StatelessWidget {
                           fit: BoxFit.scaleDown,
                           child: Text(
                             AppStrings.appName,
-                            style: TextStyle(
-                              color: p.primary,
-                              fontSize: 28,
-                              fontWeight: FontWeight.w400,
-                              height: 1.4,
+                            style: AppTypography.pageTitle(
+                              context,
+                              compact: true,
                             ),
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            '${data.day.month}月${data.day.day}日  周${'一二三四五六日'[data.day.weekday - 1]}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: p.textSecondary,
+                        if (!compactRail) ...[
+                          const SizedBox(height: 8),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '${data.day.month}月${data.day.day}日  周${'一二三四五六日'[data.day.weekday - 1]}',
+                              style: AppTypography.supporting(context),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 11),
-                        Container(width: 35, height: 1, color: p.primary),
-                        const SizedBox(height: 18),
+                        ],
+                        SizedBox(height: compactRail ? 12 : 24),
                         navigation,
-                        const SizedBox(height: 12),
-                        Divider(color: p.border, height: 1),
-                        const SizedBox(height: 17),
-                        Text(
-                          '上次',
-                          style: TextStyle(
-                            color: p.textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            data.last == null
-                                ? '— —'
-                                : TimeUtils.formatTime(data.last!),
-                            style: TextStyle(
-                              fontSize: 34,
-                              height: 1.2,
-                              color: p.textPrimary,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
+                        if (compactRail) ...[
+                          const SizedBox(height: 12),
+                          Divider(color: p.border, height: 1),
+                          const SizedBox(height: 12),
+                          _compactRailSummary(context, data.last, data.count),
+                        ] else ...[
+                          const SizedBox(height: 12),
+                          Divider(color: p.border, height: 1),
+                          const SizedBox(height: 17),
+                          Text('上次', style: AppTypography.supporting(context)),
+                          const SizedBox(height: 3),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              data.last == null
+                                  ? '— —'
+                                  : TimeUtils.formatTime(data.last!),
+                              style: TextStyle(
+                                fontSize: 34,
+                                height: 1.2,
+                                color: p.textPrimary,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        if (data.last != null)
-                          Selector<FeedProvider, Duration>(
-                            selector: (_, feed) => feed.timeElapsed,
-                            builder: (context, elapsed, _) => Padding(
-                              padding: const EdgeInsets.only(top: 3),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  '已间隔 ${TimeUtils.formatDuration(elapsed)}',
-                                  style: TextStyle(
-                                    color: p.textSecondary,
-                                    fontSize: 10,
+                          if (data.last != null)
+                            Selector<FeedProvider, Duration>(
+                              selector: (_, feed) => feed.timeElapsed,
+                              builder: (context, elapsed, _) => Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    '已间隔 ${TimeUtils.formatDuration(elapsed)}',
+                                    style: AppTypography.caption(context),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        const SizedBox(height: 10),
-                        Divider(color: p.border, height: 1),
-                        const SizedBox(height: 13),
-                        AppPressable(
-                          onPressed: () => onSelect(1),
-                          semanticLabel: '查看今日喂奶记录',
-                          excludeSemantics: true,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 3),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '今天',
-                                  style: TextStyle(
-                                    color: p.textSecondary,
-                                    fontSize: 14,
+                          const SizedBox(height: 10),
+                          Divider(color: p.border, height: 1),
+                          const SizedBox(height: 13),
+                          AppPressable(
+                            onPressed: () => onSelect(1),
+                            semanticLabel: '查看今日喂奶记录',
+                            excludeSemantics: true,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '今天',
+                                    style: AppTypography.supporting(context),
                                   ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text.rich(
-                                  TextSpan(
-                                    children: [
-                                      TextSpan(
-                                        text: '${data.count}',
-                                        style: const TextStyle(fontSize: 34),
-                                      ),
-                                      const TextSpan(
-                                        text: ' 次',
-                                        style: TextStyle(fontSize: 20),
-                                      ),
-                                    ],
+                                  const SizedBox(height: 3),
+                                  Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '${data.count}',
+                                          style: const TextStyle(fontSize: 34),
+                                        ),
+                                        const TextSpan(
+                                          text: ' 次',
+                                          style: TextStyle(fontSize: 20),
+                                        ),
+                                      ],
+                                    ),
+                                    style: TextStyle(
+                                      height: 1.2,
+                                      color: p.textPrimary,
+                                    ),
                                   ),
-                                  style: TextStyle(
-                                    height: 1.2,
-                                    color: p.textPrimary,
-                                  ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
             ),
+    );
+  }
+
+  Widget _compactRailSummary(BuildContext context, DateTime? last, int count) {
+    final p = AppPalette.of(context);
+    Widget metric(String label, String value) => FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: AppTypography.supporting(context)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 30,
+              height: 1.3,
+              color: p.textPrimary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: metric(
+            '上次',
+            last == null ? '— —' : TimeUtils.formatTime(last),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: AppPressable(
+            semanticLabel: '查看今日喂奶记录',
+            onPressed: () => onSelect(1),
+            child: metric('今天', '$count 次'),
+          ),
+        ),
+      ],
     );
   }
 }

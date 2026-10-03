@@ -13,6 +13,7 @@ class StorageService {
     : _preferencesLoader = preferencesLoader ?? SharedPreferences.getInstance;
 
   static const _acknowledgedFeedKey = 'acknowledgedFeedTime';
+  static const _acknowledgedFeedRecordKey = 'acknowledgedFeedRecord';
   static const _acceptedPrivacyPolicyVersionKey =
       'acceptedPrivacyPolicyVersion';
   final Future<SharedPreferences> Function() _preferencesLoader;
@@ -96,8 +97,8 @@ class StorageService {
   }
 
   Future<int> getFeedInterval() async {
-    final value = (await _prefsSafe).getInt(StorageKeys.feedIntervalMinutes);
-    return value != null && value > 0 ? value : AppDefaults.feedIntervalMinutes;
+    final value = (await _prefsSafe).get(StorageKeys.feedIntervalMinutes);
+    return value is int && value > 0 ? value : AppDefaults.feedIntervalMinutes;
   }
 
   Future<void> setFeedInterval(int minutes) async {
@@ -122,13 +123,52 @@ class StorageService {
   Future<void> clearLastFeedTime() async =>
       _write((prefs) => prefs.remove(StorageKeys.lastFeedTime));
 
-  Future<DateTime?> getAcknowledgedFeedTime() async {
-    final timestamp = (await _prefsSafe).getInt(_acknowledgedFeedKey);
+  /// A new snapshot takes precedence even when cleared or damaged. Falling
+  /// back to an older timestamp in those cases could silence the wrong cycle.
+  Future<({String? recordId, DateTime time})?> getFeedAcknowledgement() async {
+    final prefs = await _prefsSafe;
+    if (prefs.containsKey(_acknowledgedFeedRecordKey)) {
+      final encoded = prefs.getString(_acknowledgedFeedRecordKey);
+      if (encoded == null) throw const FormatException('提醒确认状态无法读取');
+      final decoded = jsonDecode(encoded);
+      if (decoded == null) return null;
+      if (decoded is! Map<String, dynamic> ||
+          decoded['id'] is! String ||
+          (decoded['id'] as String).isEmpty ||
+          decoded['time'] is! int) {
+        throw const FormatException('提醒确认状态无法读取');
+      }
+      return (
+        recordId: decoded['id'] as String,
+        time: DateTime.fromMillisecondsSinceEpoch(decoded['time'] as int),
+      );
+    }
+    final timestamp = prefs.getInt(_acknowledgedFeedKey);
     return timestamp == null
         ? null
-        : DateTime.fromMillisecondsSinceEpoch(timestamp);
+        : (
+            recordId: null,
+            time: DateTime.fromMillisecondsSinceEpoch(timestamp),
+          );
   }
 
+  /// Compatibility view for consumers that only need the confirmation time.
+  Future<DateTime?> getAcknowledgedFeedTime() async =>
+      (await getFeedAcknowledgement())?.time;
+
+  Future<void> setAcknowledgedFeedRecord(FeedRecord? record) => _write(
+    (prefs) => prefs.setString(
+      _acknowledgedFeedRecordKey,
+      jsonEncode(
+        record == null
+            ? null
+            : {'id': record.id, 'time': record.time.millisecondsSinceEpoch},
+      ),
+    ),
+  );
+
+  /// Imports legacy timestamp-only state. Once a record snapshot exists it
+  /// remains authoritative; new acknowledgements use setAcknowledgedFeedRecord.
   Future<void> setAcknowledgedFeedTime(DateTime? time) async {
     await _write(
       (prefs) => time == null
@@ -137,16 +177,20 @@ class StorageService {
     );
   }
 
-  Future<bool> getNightModeEnabled() async =>
-      (await _prefsSafe).getBool(StorageKeys.nightModeEnabled) ??
-      AppDefaults.nightModeEnabled;
+  Future<bool> _getBool(String key, bool fallback) async {
+    final value = (await _prefsSafe).get(key);
+    return value is bool ? value : fallback;
+  }
+
+  Future<bool> getNightModeEnabled() =>
+      _getBool(StorageKeys.nightModeEnabled, AppDefaults.nightModeEnabled);
 
   Future<void> setNightModeEnabled(bool enabled) async =>
       _write((prefs) => prefs.setBool(StorageKeys.nightModeEnabled, enabled));
 
   Future<String> _getTime(String key, String fallback) async {
-    final value = (await _prefsSafe).getString(key);
-    return value != null && TimeUtils.isValidTime(value) ? value : fallback;
+    final value = (await _prefsSafe).get(key);
+    return value is String && TimeUtils.isValidTime(value) ? value : fallback;
   }
 
   Future<void> _setTime(String key, String value) async {
@@ -166,16 +210,14 @@ class StorageService {
   Future<void> setNightEndTime(String time) =>
       _setTime(StorageKeys.nightEndTime, time);
 
-  Future<bool> getSoundEnabled() async =>
-      (await _prefsSafe).getBool(StorageKeys.soundEnabled) ??
-      AppDefaults.soundEnabled;
+  Future<bool> getSoundEnabled() =>
+      _getBool(StorageKeys.soundEnabled, AppDefaults.soundEnabled);
 
   Future<void> setSoundEnabled(bool enabled) async =>
       _write((prefs) => prefs.setBool(StorageKeys.soundEnabled, enabled));
 
-  Future<bool> getSoundLoopEnabled() async =>
-      (await _prefsSafe).getBool(StorageKeys.soundLoopEnabled) ??
-      AppDefaults.soundLoopEnabled;
+  Future<bool> getSoundLoopEnabled() =>
+      _getBool(StorageKeys.soundLoopEnabled, AppDefaults.soundLoopEnabled);
 
   Future<void> setSoundLoopEnabled(bool enabled) async =>
       _write((prefs) => prefs.setBool(StorageKeys.soundLoopEnabled, enabled));
@@ -189,12 +231,39 @@ class StorageService {
     final decoded = jsonDecode(encoded);
     if (decoded is! List) throw const FormatException('喂奶记录格式无法读取');
     // Reject a damaged payload instead of silently erasing the original data.
-    return decoded.map((entry) {
+    final entries = decoded.map((entry) {
       if (entry is! Map<String, dynamic>) {
         throw const FormatException('喂奶记录格式无法读取');
       }
-      return FeedRecord.fromJson(entry);
+      return entry;
     }).toList();
+    final identities = {
+      for (final entry in entries)
+        if (entry['id'] is String) entry['id'] as String,
+    };
+    return [
+      for (var index = 0; index < entries.length; index++)
+        _readRecord(entries[index], index, identities),
+    ];
+  }
+
+  FeedRecord _readRecord(
+    Map<String, dynamic> entry,
+    int index,
+    Set<String> identities,
+  ) {
+    if (entry['id'] is String) return FeedRecord.fromJson(entry);
+    // Legacy entries lack IDs. A stable identity must survive a read-only
+    // restart; equal timestamps still represent distinct records. Reserve all
+    // explicit IDs before generating any, so migrations cannot introduce a
+    // collision with a later entry. Normal saves persist the generated IDs.
+    final base = 'legacy-${entry['time']}-$index';
+    var identity = base;
+    var suffix = 1;
+    while (!identities.add(identity)) {
+      identity = '$base-${suffix++}';
+    }
+    return FeedRecord.fromJson({...entry, 'id': identity});
   }
 
   Future<void> setFeedHistory(List<FeedRecord> records) async => _write(
@@ -221,9 +290,10 @@ class StorageService {
     }
   }
 
-  Future<bool> getBurnInProtectionEnabled() async =>
-      (await _prefsSafe).getBool(StorageKeys.burnInProtectionEnabled) ??
-      AppDefaults.burnInProtectionEnabled;
+  Future<bool> getBurnInProtectionEnabled() => _getBool(
+    StorageKeys.burnInProtectionEnabled,
+    AppDefaults.burnInProtectionEnabled,
+  );
 
   Future<void> setBurnInProtectionEnabled(bool enabled) async => _write(
     (prefs) => prefs.setBool(StorageKeys.burnInProtectionEnabled, enabled),

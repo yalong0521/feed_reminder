@@ -3,11 +3,15 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../providers/feed_provider.dart';
 import '../utils/constants.dart';
+import '../theme/app_typography.dart';
+import 'app_page_header.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
 import 'countdown_timeline.dart';
 import 'countdown_text.dart';
 import 'feed_button.dart';
+import 'overdue_duration.dart';
+import 'overdue_timeline.dart';
 
 /// The slider keeps the same element path when the journal changes layout.
 class LandscapeFeedPanel extends StatelessWidget {
@@ -20,6 +24,7 @@ class LandscapeFeedPanel extends StatelessWidget {
     required this.onStopAlert,
     required this.onBackfill,
     this.onHistory,
+    this.pulseEnabled = true,
   });
   final FeedProvider feed;
   final bool quiet;
@@ -28,6 +33,7 @@ class LandscapeFeedPanel extends StatelessWidget {
   final Future<void> Function() onStopAlert;
   final VoidCallback onBackfill;
   final VoidCallback? onHistory;
+  final bool pulseEnabled;
   bool get _alert => feed.state == FeedState.alerting;
   bool get _warning => feed.state == FeedState.warning;
   bool get _hasRecord => feed.lastFeedTime != null;
@@ -41,22 +47,39 @@ class LandscapeFeedPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final landscape = size.width >= 600 && size.width > size.height;
-    final horizontalPadding = landscape && size.width >= 800 ? 32.0 : 24.0;
+    final shortLandscape = landscape && size.height <= 500;
+    final landscapeTopPadding = size.height <= 300
+        ? 8.0
+        : shortLandscape
+        ? 12.0
+        : 26.0;
+    final landscapeBottomPadding = size.height <= 300
+        ? 12.0
+        : shortLandscape
+        ? 16.0
+        : 32.0;
+    final horizontalPadding = landscape
+        ? (size.width >= 800 ? 32.0 : 24.0)
+        : AppPageLayout.contentPadding(size.width);
     final p = AppPalette.of(context);
     return Center(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: landscape ? 1280 : 660),
+        constraints: BoxConstraints(
+          maxWidth: landscape ? 1280 : double.infinity,
+        ),
         child: Padding(
           padding: EdgeInsets.fromLTRB(
             horizontalPadding,
-            landscape ? 26 : 24,
+            landscape
+                ? landscapeTopPadding
+                : AppPageLayout.topPadding(AppPageLayout.compact(context)),
             horizontalPadding,
-            landscape ? 32 : 20,
+            landscape ? landscapeBottomPadding : 20,
           ),
           child: LayoutBuilder(
             builder: (context, constraints) => SingleChildScrollView(
               child: SizedBox(
-                height: math.max(constraints.maxHeight, landscape ? 240 : 480),
+                height: math.max(constraints.maxHeight, landscape ? 200 : 480),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -64,7 +87,15 @@ class LandscapeFeedPanel extends StatelessWidget {
                       key: ValueKey(
                         landscape ? 'landscape-home' : 'portrait-home',
                       ),
-                      height: landscape ? 0 : 84,
+                      height: landscape
+                          ? 0
+                          : math.max(
+                              84,
+                              MediaQuery.textScalerOf(context).scale(34) * 1.2 +
+                                  8 +
+                                  MediaQuery.textScalerOf(context).scale(14) *
+                                      1.5,
+                            ),
                       child: landscape ? null : _heading(context),
                     ),
                     if (feed.error != null)
@@ -72,12 +103,20 @@ class LandscapeFeedPanel extends StatelessWidget {
                         feed.error!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: p.alert, fontSize: 12),
+                        style: AppTypography.caption(
+                          context,
+                        ).copyWith(color: p.alert),
                       ),
                     Expanded(
                       child: Center(child: _countdown(context, landscape)),
                     ),
-                    SizedBox(height: landscape ? 16 : 24),
+                    SizedBox(
+                      height: landscape
+                          ? shortLandscape
+                                ? 12
+                                : 16
+                          : 24,
+                    ),
                     SizedBox(
                       height: landscape ? 0 : 108,
                       child: landscape ? null : _facts(context),
@@ -94,35 +133,21 @@ class LandscapeFeedPanel extends StatelessWidget {
   }
 
   Widget _heading(BuildContext context) {
-    final p = AppPalette.of(context);
     final now = feed.referenceTime;
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.topLeft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppStrings.appName,
-            style: TextStyle(
-              color: p.primary,
-              fontSize: 30,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${now.month}月${now.day}日  周${'一二三四五六日'[now.weekday - 1]}',
-            style: TextStyle(color: p.textSecondary, fontSize: 14),
-          ),
-        ],
-      ),
+    return AppPageHeader(
+      title: AppStrings.appName,
+      subtitle: '${now.month}月${now.day}日  周${'一二三四五六日'[now.weekday - 1]}',
+      compact: AppPageLayout.compact(context),
     );
   }
 
   Widget _countdown(BuildContext context, bool landscape) {
+    if (_alert) return _overdueCountdown(context, landscape);
     final p = AppPalette.of(context);
     final color = _timeColor(p);
+    final time = _hasRecord
+        ? TimeUtils.formatDuration(feed.timeRemaining)
+        : '--:--:--';
     return Padding(
       padding: EdgeInsets.only(top: landscape ? 8 : 0),
       child: Column(
@@ -160,18 +185,16 @@ class LandscapeFeedPanel extends StatelessWidget {
                                   child: Row(
                                     children: [
                                       Text(
-                                        _alert
-                                            ? '该喂奶了，已超过'
-                                            : _warning
+                                        _warning
                                             ? '快到喂奶时间'
                                             : !_hasRecord
                                             ? '等待第一条记录'
                                             : '距离下次喂奶',
                                         style: TextStyle(
-                                          color: _alert || _warning
+                                          color: _warning
                                               ? color
                                               : p.textPrimary,
-                                          fontSize: landscape ? 19 : 17,
+                                          fontSize: 18,
                                         ),
                                       ),
                                       if (quiet) ...[
@@ -197,19 +220,18 @@ class LandscapeFeedPanel extends StatelessWidget {
                                   fit: BoxFit.scaleDown,
                                   alignment: Alignment.center,
                                   child: CountdownText(
-                                    _hasRecord
-                                        ? TimeUtils.formatDuration(
-                                            _alert
-                                                ? feed.overdue
-                                                : feed.timeRemaining,
-                                          )
-                                        : '--:--:--',
+                                    time,
+                                    semanticLabel: !_hasRecord
+                                        ? '等待第一条记录'
+                                        : '距离下次喂奶 $time',
                                     key: ValueKey(
                                       landscape
                                           ? 'landscape-countdown'
                                           : 'portrait-countdown',
                                     ),
-                                    fontSize: landscape ? 180 : 108,
+                                    fontSize: CountdownText.timerFontSize(
+                                      landscape,
+                                    ),
                                     color: color,
                                   ),
                                 ),
@@ -234,39 +256,231 @@ class LandscapeFeedPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (!_alert)
-                      SizedBox(height: 28, child: _countdownFooter(context)),
+                    SizedBox(height: 28, child: _countdownFooter(context)),
                   ],
                 ),
               ),
             ),
           ),
-          // Stopping an audible reminder must not require scrolling.
-          if (_alert) SizedBox(height: 48, child: _countdownFooter(context)),
         ],
       ),
     );
   }
 
-  Widget _countdownFooter(BuildContext context) {
+  Widget _overdueCountdown(BuildContext context, bool landscape) {
     final p = AppPalette.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: landscape ? 8 : 0),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final relaxedPortrait =
+                      !landscape &&
+                      constraints.maxHeight >= 380 &&
+                      MediaQuery.textScalerOf(context).scale(1) <= 1.2;
+                  final timelineHeight = OverdueTimeline.requiredHeight(
+                    context,
+                    deadline: feed.nextFeedTime!,
+                    now: feed.referenceTime,
+                    width: math.min(560, constraints.maxWidth * .9),
+                  );
+                  final normalBeforeGap = relaxedPortrait ? 16.0 : 24.0;
+                  final normalAfterGap = relaxedPortrait ? 7.0 : 12.0;
+                  // Choose density from the content's actual font metrics.
+                  // A tighter layout can still keep the complete timeline.
+                  final normalHeight =
+                      _overdueHeroHeight(
+                        context,
+                        constraints.maxWidth,
+                        fontSize: CountdownText.timerFontSize(landscape),
+                        compact: false,
+                      ) +
+                      normalBeforeGap +
+                      timelineHeight +
+                      normalAfterGap;
+                  final compact =
+                      landscape && normalHeight + 2 > constraints.maxHeight;
+                  final beforeGap = compact ? 12.0 : normalBeforeGap;
+                  final afterGap = compact ? 8.0 : normalAfterGap;
+                  // Reserve the timeline while the fitted digits can remain
+                  // readable. This minimum is a fit threshold, not a smaller
+                  // font assigned to the overdue state.
+                  final showTimeline =
+                      !compact ||
+                      _overdueHeroHeight(
+                                context,
+                                constraints.maxWidth,
+                                fontSize: math.min(
+                                  CountdownText.timerFontSize(landscape),
+                                  96,
+                                ),
+                                compact: true,
+                              ) +
+                              beforeGap +
+                              timelineHeight +
+                              afterGap +
+                              2 <=
+                          constraints.maxHeight;
+                  final heroHeight = showTimeline && landscape
+                      ? math.max(
+                          0.0,
+                          constraints.maxHeight -
+                              beforeGap -
+                              timelineHeight -
+                              afterGap,
+                        )
+                      : constraints.maxHeight;
+                  return SingleChildScrollView(
+                    key: const ValueKey('countdown-details-scroll'),
+                    primary: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ConstrainedBox(
+                          constraints: BoxConstraints(maxHeight: heroHeight),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: SizedBox(
+                              width: constraints.maxWidth,
+                              child: _overdueHero(context, landscape, compact),
+                            ),
+                          ),
+                        ),
+                        if (showTimeline) ...[
+                          SizedBox(height: beforeGap),
+                          FractionallySizedBox(
+                            widthFactor: .9,
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 560,
+                                ),
+                                child: OverdueTimeline(
+                                  deadline: feed.nextFeedTime!,
+                                  now: feed.referenceTime,
+                                  color: p.alert,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: afterGap),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            // Keep stopping the sound reachable even when the details scroll.
+            SizedBox(height: 48, child: _countdownFooter(context)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _overdueSubtitleStyle = TextStyle(fontSize: 18, height: 1.3);
+
+  double _overdueHeroHeight(
+    BuildContext context,
+    double width, {
+    required double fontSize,
+    required bool compact,
+  }) {
+    final inherited = DefaultTextStyle.of(context);
+    final subtitle = TextPainter(
+      text: TextSpan(
+        text: '该喂奶了',
+        style: inherited.style.merge(_overdueSubtitleStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      textHeightBehavior: inherited.textHeightBehavior,
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    )..layout();
+    final subtitleHeight = math.max(quiet ? 16.0 : 0.0, subtitle.height);
+    subtitle.dispose();
+    final duration = OverdueDuration.measure(
+      context,
+      duration: feed.overdue,
+      fontSize: fontSize,
+      unitFontSize: compact ? 24 : 30,
+    );
+    final scale = math.min(1.0, width / duration.width);
+    return subtitleHeight + (compact ? 8 : 12) + duration.height * scale;
+  }
+
+  Widget _overdueHero(BuildContext context, bool landscape, bool compact) {
+    final p = AppPalette.of(context);
+    final subtitle = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '该喂奶了',
+          style: _overdueSubtitleStyle.copyWith(color: p.textSecondary),
+        ),
+        if (quiet) ...[
+          const SizedBox(width: 10),
+          Tooltip(
+            message: '夜间静默',
+            child: Icon(CupertinoIcons.moon, size: 16, color: p.textSecondary),
+          ),
+        ],
+      ],
+    );
+    final duration = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: OverdueDuration(
+        key: ValueKey(landscape ? 'landscape-countdown' : 'portrait-countdown'),
+        duration: feed.overdue,
+        color: p.alert,
+        fontSize: CountdownText.timerFontSize(landscape),
+        unitFontSize: compact ? 24 : 30,
+        pulse: pulseEnabled,
+      ),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        subtitle,
+        SizedBox(height: compact ? 8 : 12),
+        duration,
+      ],
+    );
+  }
+
+  Widget _countdownFooter(BuildContext context) {
     if (_alert) {
+      final stopped = feed.isAlertAcknowledged;
+      final statusColor = stopped
+          ? AppPalette.of(context).textSecondary
+          : AppPalette.of(context).alert;
       return Align(
         alignment: Alignment.center,
         child: AppButton(
           onPressed: onStopAlert,
           surface: false,
-          destructive: true,
+          destructive: !stopped,
           padding: EdgeInsets.zero,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(CupertinoIcons.speaker_slash, size: 18),
+              Icon(CupertinoIcons.speaker_slash, size: 18, color: statusColor),
               const SizedBox(width: 8),
               Flexible(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: Text(feed.isAlertAcknowledged ? '本次提醒已停止' : '停止本次提醒'),
+                  child: Text(
+                    stopped ? '本次提醒已停止' : '停止本次提醒',
+                    style: stopped ? AppTypography.supporting(context) : null,
+                  ),
                 ),
               ),
             ],
@@ -281,7 +495,7 @@ class LandscapeFeedPanel extends StatelessWidget {
         _hasRecord
             ? '本轮间隔 ${TimeUtils.formatInterval(feed.feedIntervalMinutes)}'
             : '记录后，开始计时',
-        style: TextStyle(fontSize: 13, color: p.textSecondary),
+        style: AppTypography.supporting(context),
       ),
     );
   }
@@ -294,7 +508,7 @@ class LandscapeFeedPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(color: p.textSecondary, fontSize: 13)),
+          Text(title, style: AppTypography.supporting(context)),
           const SizedBox(height: 4),
           Text(
             value,
@@ -306,10 +520,7 @@ class LandscapeFeedPanel extends StatelessWidget {
             ),
           ),
           if (detail != null)
-            Text(
-              detail,
-              style: TextStyle(color: p.textSecondary, fontSize: 11),
-            ),
+            Text(detail, style: AppTypography.caption(context)),
         ],
       ),
     );
@@ -377,7 +588,7 @@ class LandscapeFeedPanel extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   child: Text(
                     '补记',
-                    style: TextStyle(color: p.primary, fontSize: 16),
+                    style: AppTypography.button.copyWith(color: p.primary),
                   ),
                 ),
               ),

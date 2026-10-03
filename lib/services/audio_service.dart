@@ -24,27 +24,62 @@ class AudioService {
     return result;
   }
 
-  Future<void> playReminder({bool loop = true}) => _enqueue(() async {
-    if (_disposed || _isPlaying) return;
+  AudioPlayer _getPlayer() {
     final player = _player ??= _playerFactory();
     _completion ??= player.onPlayerComplete.listen(
       (_) {
+        if (_disposed || !identical(_player, player)) return;
         // The plugin emits completion at each loop boundary as well.
         if (!_loop) _isPlaying = false;
       },
       onError: (Object error, StackTrace stack) {
+        if (_disposed || !identical(_player, player)) return;
         _isPlaying = false;
         _playbackError = error;
         debugPrint('Reminder audio unavailable: $error\n$stack');
       },
     );
-    _loop = loop;
-    final resetPlayer = _playbackError != null;
-    _playbackError = null;
+    return player;
+  }
+
+  Future<void> _discardFailedPlayer(AudioPlayer player) async {
+    // Detach before awaiting cleanup so late native events cannot affect the
+    // replacement. A failed creation future makes release/dispose fail forever.
+    _player = null;
+    final completion = _completion;
+    _completion = null;
+    try {
+      await completion?.cancel();
+    } finally {
+      try {
+        await player.dispose();
+      } catch (error, stack) {
+        debugPrint(
+          'Failed reminder player cleanup unavailable: $error\n$stack',
+        );
+      }
+    }
+  }
+
+  Future<void> playReminder({bool loop = true}) => _enqueue(() async {
+    if (_disposed || _isPlaying) return;
+    var player = _player;
     try {
       // Android retains the source after a MediaPlayer error. Reusing that
       // source without release can report "prepared" without starting sound.
-      if (resetPlayer) await player.release();
+      if (_playbackError != null && player != null) {
+        try {
+          await player.release();
+        } catch (_) {
+          // Native creation failures are retained by AudioPlayer itself. Use
+          // a new instance when releasing the old one cannot recover it.
+          await _discardFailedPlayer(player);
+          player = null;
+        }
+      }
+      player ??= _getPlayer();
+      _loop = loop;
+      _playbackError = null;
       await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.stop);
       // Completion/error events may arrive before the platform play future.
       // Set this first so those events remain authoritative after it returns.

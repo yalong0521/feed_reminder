@@ -181,8 +181,20 @@ Win32Window::MessageHandler(HWND hwnd,
   switch (message) {
     case WM_GETMINMAXINFO: {
       MINMAXINFO* minmax = reinterpret_cast<MINMAXINFO*>(lparam);
-      minmax->ptMinTrackSize.x = Scale(400, 1.0);
-      minmax->ptMinTrackSize.y = Scale(700, 1.0);
+      const UINT window_dpi = GetDpiForWindow(hwnd);
+      const UINT dpi = window_dpi == 0 ? 96 : window_dpi;
+      const double scale_factor = dpi / 96.0;
+      // Keep the tested minimum Flutter viewport in logical pixels, then add
+      // the current DPI's title bar and borders to the outer tracking size.
+      RECT minimum = {0, 0, Scale(400, scale_factor),
+                      Scale(280, scale_factor)};
+      const DWORD style = static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE));
+      const DWORD ex_style =
+          static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE));
+      AdjustWindowRectExForDpi(&minimum, style, GetMenu(hwnd) != nullptr,
+                              ex_style, dpi);
+      minmax->ptMinTrackSize.x = minimum.right - minimum.left;
+      minmax->ptMinTrackSize.y = minimum.bottom - minimum.top;
       return 0;
     }
     case WM_DESTROY:

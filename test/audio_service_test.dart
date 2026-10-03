@@ -9,6 +9,9 @@ class _Player extends Fake implements AudioPlayer {
   final completions = StreamController<void>.broadcast(sync: true);
   final operations = <String>[];
   Completer<void>? playGate;
+  bool creationFails = false;
+  bool releaseFails = false;
+  bool disposeFails = false;
 
   @override
   Stream<void> get onPlayerComplete => completions.stream;
@@ -16,6 +19,7 @@ class _Player extends Fake implements AudioPlayer {
   @override
   Future<void> setReleaseMode(ReleaseMode mode) async {
     operations.add('mode:${mode.name}');
+    if (creationFails) throw PlatformException(code: 'creation_failed');
   }
 
   @override
@@ -35,11 +39,15 @@ class _Player extends Fake implements AudioPlayer {
   Future<void> stop() async => operations.add('stop');
 
   @override
-  Future<void> release() async => operations.add('release');
+  Future<void> release() async {
+    operations.add('release');
+    if (releaseFails) throw PlatformException(code: 'release_failed');
+  }
 
   @override
   Future<void> dispose() async {
     operations.add('dispose');
+    if (disposeFails) throw PlatformException(code: 'dispose_failed');
     await completions.close();
   }
 }
@@ -158,4 +166,83 @@ void main() {
       );
     },
   );
+
+  test(
+    'failed native creation replaces an unrecoverable player on retry',
+    () async {
+      player.creationFails = true;
+      player.releaseFails = true;
+      player.disposeFails = true;
+      final replacement = _Player();
+      var creations = 0;
+      audio = AudioService(
+        playerFactory: () => creations++ == 0 ? player : replacement,
+      );
+      addTearDown(player.completions.close);
+
+      await expectLater(
+        audio.playReminder(loop: false),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(audio.isPlaying, isFalse);
+      expect(audio.hasPlaybackError, isTrue);
+
+      await audio.playReminder(loop: false);
+
+      expect(creations, 2);
+      expect(player.operations, ['mode:stop', 'release', 'dispose']);
+      expect(audio.isPlaying, isTrue);
+      expect(audio.hasPlaybackError, isFalse);
+      // Neither completion nor an error from the retired native instance may
+      // stop or invalidate the current one-shot reminder.
+      player.completions.add(null);
+      player.completions.addError(PlatformException(code: 'old_player_error'));
+      expect(audio.isPlaying, isTrue);
+      expect(audio.hasPlaybackError, isFalse);
+
+      replacement.completions.add(null);
+      expect(audio.isPlaying, isFalse);
+      expect(
+        replacement.operations.where((operation) => operation == 'play'),
+        hasLength(1),
+      );
+    },
+  );
+
+  for (final dispose in [false, true]) {
+    test(
+      '${dispose ? 'dispose' : 'stop'} waits for replacement playback and wins',
+      () async {
+        player.creationFails = true;
+        player.releaseFails = true;
+        final replacement = _Player()..playGate = Completer<void>();
+        var creations = 0;
+        audio = AudioService(
+          playerFactory: () => creations++ == 0 ? player : replacement,
+        );
+        await expectLater(
+          audio.playReminder(),
+          throwsA(isA<PlatformException>()),
+        );
+
+        final recovery = audio.playReminder();
+        final stopped = dispose ? audio.dispose() : audio.stopReminder();
+        await Future<void>.delayed(Duration.zero);
+        expect(replacement.operations, ['mode:loop', 'play']);
+        replacement.playGate!.complete();
+        await Future.wait([recovery, stopped]);
+
+        expect(replacement.operations.last, dispose ? 'dispose' : 'stop');
+        expect(audio.isPlaying, isFalse);
+        if (dispose) {
+          await audio.playReminder();
+          expect(creations, 2);
+          expect(
+            replacement.operations.where((operation) => operation == 'play'),
+            hasLength(1),
+          );
+        }
+      },
+    );
+  }
 }

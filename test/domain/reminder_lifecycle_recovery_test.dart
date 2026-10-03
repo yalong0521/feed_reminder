@@ -82,9 +82,9 @@ class _Storage extends StorageService {
   bool failAcknowledgement = false;
 
   @override
-  Future<void> setAcknowledgedFeedTime(DateTime? time) async {
+  Future<void> setAcknowledgedFeedRecord(FeedRecord? record) async {
     if (failAcknowledgement) throw StateError('Acknowledgement write failed');
-    await super.setAcknowledgedFeedTime(time);
+    await super.setAcknowledgedFeedRecord(record);
   }
 }
 

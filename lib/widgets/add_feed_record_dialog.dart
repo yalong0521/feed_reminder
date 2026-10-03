@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/feed_provider.dart';
+import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
@@ -164,9 +165,9 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
           constraints: BoxConstraints(maxWidth: compact ? 620 : 460),
           child: AppSurface(
             key: const ValueKey('add-feed-record-surface'),
-            radius: 18,
+            radius: 24,
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(compact ? 18 : 28),
+              padding: EdgeInsets.all(compact ? 16 : 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,13 +178,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                       Expanded(
                         child: Text(
                           AppStrings.addFeedTitle,
-                          style: TextStyle(
-                            fontSize: compact ? 24 : 28,
-                            height: 1.3,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: .4,
-                            color: colors.primary,
-                          ),
+                          style: AppTypography.dialogTitle(context),
                         ),
                       ),
                     ],
@@ -192,18 +187,10 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     const SizedBox(height: 8),
                     Text(
                       '补上实际喂奶的日期与时间。',
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 14,
-                        height: 1.6,
-                      ),
+                      style: AppTypography.supporting(context),
                     ),
                   ],
-                  Container(
-                    height: 1,
-                    color: colors.border,
-                    margin: EdgeInsets.symmetric(vertical: compact ? 8 : 24),
-                  ),
+                  SizedBox(height: compact ? 16 : 24),
                   // Both layouts share the taller field's content height.
                   IntrinsicHeight(
                     child: Flex(
@@ -234,11 +221,9 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                             Expanded(
                               child: Text(
                                 error,
-                                style: TextStyle(
-                                  color: colors.alert,
-                                  fontSize: 13,
-                                  height: 1.5,
-                                ),
+                                style: AppTypography.supporting(
+                                  context,
+                                ).copyWith(color: colors.alert),
                               ),
                             ),
                           ],
@@ -257,11 +242,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                       Expanded(
                         child: Text(
                           '补记会按时间排序，倒计时以最新一次喂奶为准。',
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 12,
-                            height: 1.5,
-                          ),
+                          style: AppTypography.caption(context),
                         ),
                       ),
                     ],
@@ -271,14 +252,12 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     builder: (context, constraints) {
                       final cancel = AppButton(
                         key: const ValueKey('add-feed-cancel'),
-                        radius: 28,
                         onPressed: _saving ? null : () => _close(false),
                         child: const Text(AppStrings.cancel),
                       );
                       final save = AppButton(
                         key: const ValueKey('add-feed-save'),
                         filled: true,
-                        radius: 28,
                         onPressed: disabled || isFuture ? null : _save,
                         child: _saving
                             ? CupertinoActivityIndicator(
@@ -337,10 +316,11 @@ class _PickerField extends StatelessWidget {
       semanticLabel: '$label，$value',
       excludeSemantics: true,
       child: Container(
-        padding: EdgeInsets.all(compact ? 12 : 18),
+        padding: EdgeInsets.all(compact ? 12 : 16),
         decoration: BoxDecoration(
           color: colors.background,
-          border: Border(bottom: BorderSide(color: colors.border)),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: colors.border),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -357,10 +337,7 @@ class _PickerField extends StatelessWidget {
                       Expanded(
                         child: Text(
                           label,
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 12,
-                          ),
+                          style: AppTypography.caption(context),
                         ),
                       ),
                     ],
@@ -368,17 +345,15 @@ class _PickerField extends StatelessWidget {
                   SizedBox(height: compact ? 4 : 10),
                   Text(
                     value,
-                    style: TextStyle(
-                      color: emphasizeValue
-                          ? colors.primary
-                          : colors.textPrimary,
-                      fontSize: emphasizeValue ? (compact ? 29 : 36) : 18,
-                      height: emphasizeValue ? 1 : 1.2,
-                      fontWeight: emphasizeValue
-                          ? FontWeight.w400
-                          : FontWeight.w500,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                    style: emphasizeValue
+                        ? TextStyle(
+                            color: colors.primary,
+                            fontSize: compact ? 29 : 36,
+                            height: 1,
+                            fontWeight: FontWeight.w400,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          )
+                        : AppTypography.label(context),
                   ),
                 ],
               ),
