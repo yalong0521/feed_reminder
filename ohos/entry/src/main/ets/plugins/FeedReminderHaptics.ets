@@ -80,13 +80,13 @@ export default class FeedReminderHaptics implements FlutterPlugin, MethodCallHan
     this.supportedEffects.set(effectId, support);
     try {
       return await support;
-    } catch (error) {
+    } catch (_) {
       // Retry only on a later action. An old engine's failure must not remove
       // a newer query cached after detach and reattachment.
       if (this.supportedEffects.get(effectId) === support) {
         this.supportedEffects.delete(effectId);
       }
-      throw error;
+      throw new Error('Haptic effect support unavailable');
     }
   }
 
