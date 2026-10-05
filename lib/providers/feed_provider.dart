@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/feed_record.dart';
+import '../models/deferred_reminder.dart';
 import '../repositories/feed_repository.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
@@ -12,6 +13,8 @@ import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 
 enum FeedState { normal, warning, alerting }
+
+typedef _FeedCycle = (String?, int?);
 
 /// Presentation state for the current feeding cycle and immutable history.
 class FeedProvider extends ChangeNotifier {
@@ -42,8 +45,10 @@ class FeedProvider extends ChangeNotifier {
   late final Future<void> ready;
   Future<void> _writeQueue = Future.value();
   Future<void> _effectQueue = Future.value();
-  Future<void>? _stoppingAlert;
-  FeedRecord? _stoppingRecord;
+  final _stoppingAlerts = <_FeedCycle, Future<void>>{};
+  Future<void>? _stopBeforeReady;
+  _FeedCycle? _unsavedAcknowledgement;
+  Future<void>? _retryingLoad;
   Timer? _timer;
   bool _disposed = false;
   bool _isInitialized = false;
@@ -65,6 +70,7 @@ class FeedProvider extends ChangeNotifier {
   String? _acknowledgedRecordId;
   bool _needsAcknowledgementUpgrade = false;
   FeedRecord? _legacyAcknowledgedRecord;
+  DeferredReminder? _deferredReminder;
   Duration _timeRemaining = const Duration(
     minutes: AppDefaults.feedIntervalMinutes,
   );
@@ -79,16 +85,44 @@ class FeedProvider extends ChangeNotifier {
   bool _soundLoopEnabled = AppDefaults.soundLoopEnabled;
 
   bool get isInitialized => _isInitialized;
+  bool get isAvailable => _isInitialized && !_loadFailed;
+  bool get isRetryingLoading => _retryingLoad != null;
   bool get isSaving => _pendingWrites > 0;
   bool get isAlertAcknowledged => _alertAcknowledged;
+  bool get isStoppingAlert =>
+      isAvailable && _isStopping(feedHistory.firstOrNull);
+
+  /// Safe for persistent projections such as a home-screen card. The live UI
+  /// can stop optimistically, but only the saved cycle survives a restart.
+  bool get isAlertAcknowledgementPersisted =>
+      isAvailable && _wasAcknowledged(feedHistory.firstOrNull);
   String? get error =>
       _error ??
-      (_audioError == _audioStopError
+      (_alertAcknowledged &&
+              _unsavedAcknowledgement == _cycle(feedHistory.firstOrNull)
+          ? _acknowledgementError
+          : _audioError == _audioStopError
           ? _audioError
           : _notificationError ?? _audioError);
   DateTime? get lastFeedTime => _lastFeedTime;
-  DateTime? get nextFeedTime =>
+  DateTime? get scheduledFeedTime =>
       _lastFeedTime?.add(Duration(minutes: _feedIntervalMinutes));
+  DateTime? get nextFeedTime =>
+      _deferredReminder?.matches(
+            feedHistory.firstOrNull,
+            _feedIntervalMinutes,
+          ) ==
+          true
+      ? _deferredReminder!.remindAt
+      : scheduledFeedTime;
+  bool get isReminderDeferred =>
+      !_alertAcknowledged &&
+      _deferredReminder?.matches(
+            feedHistory.firstOrNull,
+            _feedIntervalMinutes,
+          ) ==
+          true &&
+      _deferredReminder!.remindAt.isAfter(_clock());
   Duration get timeRemaining => _timeRemaining;
   Duration get timeElapsed => _timeElapsed;
   Duration get overdue => _overdue;
@@ -132,6 +166,12 @@ class FeedProvider extends ChangeNotifier {
       _acknowledgedFeedTime?.millisecondsSinceEpoch ==
           record.time.millisecondsSinceEpoch;
 
+  _FeedCycle _cycle(FeedRecord? record) =>
+      (record?.id, record?.time.microsecondsSinceEpoch);
+
+  bool _isStopping(FeedRecord? record) =>
+      _stoppingAlerts.containsKey(_cycle(record));
+
   String _notificationFailure(Object error) => switch (error) {
     PlatformException(code: 'notification_permission_denied') =>
       '系统通知未开启，请前往设置开启',
@@ -155,6 +195,7 @@ class FeedProvider extends ChangeNotifier {
       final sound = await _storage.getSoundEnabled();
       final loop = await _storage.getSoundLoopEnabled();
       final acknowledgement = await _storage.getFeedAcknowledgement();
+      final deferredReminder = await _storage.getDeferredReminder();
       await _repository.load();
       if (_disposed) return;
       if (settingsRevision == _settingsRevision) {
@@ -166,6 +207,7 @@ class FeedProvider extends ChangeNotifier {
         _soundLoopEnabled = loop;
       }
       _lastFeedTime = _repository.lastFeedTime;
+      _deferredReminder = deferredReminder;
       _acknowledgedFeedTime = acknowledgement?.time;
       _acknowledgedRecordId = acknowledgement?.recordId;
       _needsAcknowledgementUpgrade =
@@ -181,6 +223,8 @@ class FeedProvider extends ChangeNotifier {
       }
       _alertAcknowledged = _wasAcknowledged(feedHistory.firstOrNull);
       _calculateCountdown();
+      _loadFailed = false;
+      _error = null;
       _isInitialized = true;
       // Native notification callbacks can be slow. Local readiness and the
       // countdown must not wait for reminder delivery services to respond.
@@ -198,6 +242,25 @@ class FeedProvider extends ChangeNotifier {
     }
   }
 
+  /// Retry only a failed initial read. Reusing a successful provider must never
+  /// replace its committed history or create a second periodic timer.
+  Future<void> retryLoading() {
+    final pending = _retryingLoad;
+    if (pending != null) return pending;
+    if (_disposed || isAvailable) return Future.value();
+    final operation =
+        () async {
+          await ready;
+          if (!_disposed && _loadFailed) await _initialize();
+        }().whenComplete(() {
+          _retryingLoad = null;
+          _notify();
+        });
+    _retryingLoad = operation;
+    _notify();
+    return operation;
+  }
+
   void _calculateCountdown() {
     final last = _lastFeedTime;
     final interval = Duration(minutes: _feedIntervalMinutes);
@@ -213,7 +276,7 @@ class FeedProvider extends ChangeNotifier {
     _timeElapsed = elapsed.isNegative ? Duration.zero : elapsed;
     // A clock correction can put the last record in the future. Elapsed stays
     // non-negative for display, but remaining must still match the deadline.
-    final remaining = last.add(interval).difference(now);
+    final remaining = nextFeedTime!.difference(now);
     _timeRemaining = remaining.isNegative ? Duration.zero : remaining;
     _overdue = remaining.isNegative ? -remaining : Duration.zero;
     if (_timeRemaining == Duration.zero) {
@@ -287,20 +350,44 @@ class FeedProvider extends ChangeNotifier {
   }
 
   /// Acknowledges this feeding cycle without creating a feeding record.
-  Future<void> stopAlert() => _stoppingAlert ??= _stopAlert().whenComplete(() {
-    _stoppingAlert = null;
-    _stoppingRecord = null;
-  });
-
-  Future<void> _stopAlert() async {
-    await ready;
-    if (_disposed) return;
-    final acknowledgedFeed = _lastFeedTime;
-    final acknowledgedRecord = _stoppingRecord = feedHistory.firstOrNull;
-    _alertAcknowledged = true;
-    _playbackRecoverySuppressed = true;
-    _hasTriggeredAlert = true;
+  Future<void> stopAlert() {
+    if (_disposed) return Future.value();
+    if (!_isInitialized) {
+      return _stopBeforeReady ??= ready.then((_) => stopAlert()).whenComplete(
+        () {
+          _stopBeforeReady = null;
+        },
+      );
+    }
+    if (!isAvailable) {
+      return Future.error(StateError('记录尚未成功读取，无法停止本次提醒'));
+    }
+    final record = feedHistory.firstOrNull;
+    final cycle = _cycle(record);
+    final pending = _stoppingAlerts[cycle];
+    if (pending != null) return pending;
+    // Register the exact shared Future before notifying listeners. Requests
+    // for the same cycle coalesce; a different due cycle gets its own stop.
+    final operation = Future<void>.value()
+        .then((_) => _stopAlert(record))
+        .whenComplete(() {
+          _stoppingAlerts.remove(cycle);
+          _notify();
+        });
+    _stoppingAlerts[cycle] = operation;
     _notify();
+    return operation;
+  }
+
+  Future<void> _stopAlert(FeedRecord? acknowledgedRecord) async {
+    if (_disposed) return;
+    final acknowledgedFeed = acknowledgedRecord?.time;
+    if (_cycle(feedHistory.firstOrNull) == _cycle(acknowledgedRecord)) {
+      _alertAcknowledged = true;
+      _playbackRecoverySuppressed = true;
+      _hasTriggeredAlert = true;
+      _notify();
+    }
     final stopped = await _syncReminder(reschedule: true);
     if (_disposed) return;
     if (!stopped) {
@@ -321,13 +408,16 @@ class FeedProvider extends ChangeNotifier {
       _acknowledgedRecordId = acknowledgedRecord?.id;
       _needsAcknowledgementUpgrade = false;
       _legacyAcknowledgedRecord = null;
-      if (_error == _acknowledgementError) {
-        _error = null;
-        _notify();
+      if (_unsavedAcknowledgement == _cycle(acknowledgedRecord)) {
+        _unsavedAcknowledgement = null;
       }
+      // Persisted consumers need a second update after the optimistic stop.
+      _notify();
     } catch (error, stack) {
       _logFailure('saveAcknowledgement', error, stack);
-      _error = _acknowledgementError;
+      // A history save does not persist this acknowledgement. Keep its own
+      // failure attached to this cycle until an explicit stop retry succeeds.
+      _unsavedAcknowledgement = _cycle(acknowledgedRecord);
       _notify();
       rethrow;
     }
@@ -335,6 +425,46 @@ class FeedProvider extends ChangeNotifier {
 
   Future<void> recordFeed({int milkAmountMl = 0}) =>
       addFeedRecordWithTime(_clock(), milkAmountMl: milkAmountMl);
+
+  Future<void> snoozeAlert(int minutes) {
+    if (minutes < 1 || minutes > 120) {
+      return Future.error(ArgumentError('延后时间应为 1–120 分钟'));
+    }
+    return _mutate(() async {
+      final record = feedHistory.firstOrNull;
+      _calculateCountdown();
+      if (record == null ||
+          _state != FeedState.alerting ||
+          _alertAcknowledged ||
+          _isStopping(record)) {
+        throw StateError('当前没有需要延后的提醒');
+      }
+      final deferred = DeferredReminder(
+        recordId: record.id,
+        recordTime: record.time,
+        intervalMinutes: _feedIntervalMinutes,
+        remindAt: _clock().add(Duration(minutes: minutes)),
+      );
+      await _storage.setDeferredReminder(deferred);
+      _deferredReminder = deferred;
+      // A later stop request wins if it arrived while the save was pending.
+      if (!_alertAcknowledged &&
+          !_isStopping(feedHistory.firstOrNull) &&
+          deferred.matches(feedHistory.firstOrNull, _feedIntervalMinutes)) {
+        _hasTriggeredAlert = false;
+        _playbackRecoverySuppressed = false;
+      }
+    }, failureMessage: '延后提醒未能保存，请重试');
+  }
+
+  Future<int> importFeedRecords(List<FeedRecord> records) async {
+    final snapshot = List<FeedRecord>.unmodifiable(records);
+    var added = 0;
+    await _mutate(() async {
+      added = await _repository.merge(snapshot);
+    });
+    return added;
+  }
 
   Future<void> addFeedRecordWithTime(DateTime time, {int milkAmountMl = 0}) {
     if (time.isAfter(_clock())) {
@@ -375,7 +505,10 @@ class FeedProvider extends ChangeNotifier {
     return _mutate(() => _repository.remove(record));
   }
 
-  Future<void> _mutate(Future<void> Function() change) {
+  Future<void> _mutate(
+    Future<void> Function() change, {
+    String failureMessage = '记录保存失败，请重试',
+  }) {
     if (_disposed) return Future.value();
     _pendingWrites++;
     _notify();
@@ -405,9 +538,7 @@ class FeedProvider extends ChangeNotifier {
             if (latest != _lastFeedTime ||
                 latestRecord?.id != previousRecord?.id) {
               final stoppingThisCycle =
-                  latestRecord != null &&
-                  latestRecord.id == _stoppingRecord?.id &&
-                  latestRecord.time == _stoppingRecord?.time;
+                  latestRecord != null && _isStopping(latestRecord);
               _hasTriggeredAlert = false;
               _playbackRecoverySuppressed = stoppingThisCycle;
               // Undo may restore a silenced cycle or the exact record whose
@@ -425,7 +556,7 @@ class FeedProvider extends ChangeNotifier {
             unawaited(_syncReminder(reschedule: true).then<void>((_) {}));
           } catch (error, stack) {
             _logFailure('saveRecords', error, stack);
-            _error = '记录保存失败，请重试';
+            _error = failureMessage;
             rethrow;
           }
         })
@@ -504,6 +635,9 @@ class FeedProvider extends ChangeNotifier {
     bool restartAudio = false,
     bool preserveDueReminder = false,
   }) {
+    // Unknown history is not an empty history. Reading errors must not cancel
+    // the system's last saved alarm, nor publish a guessed replacement.
+    if (!isAvailable) return Future.value(false);
     _pendingReminderEffects++;
     final operation = _effectQueue
         .then<bool>((_) async {
@@ -514,6 +648,7 @@ class FeedProvider extends ChangeNotifier {
             _settingsRevision,
             _foreground,
             _alertAcknowledged,
+            nextFeedTime,
           );
           var notificationFailed = false;
           var audioFailed = false;
@@ -699,6 +834,7 @@ class FeedProvider extends ChangeNotifier {
             _settingsRevision,
             _foreground,
             _alertAcknowledged,
+            nextFeedTime,
           );
           if (!notificationFailed &&
               notificationState == currentNotificationState &&

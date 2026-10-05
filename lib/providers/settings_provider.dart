@@ -16,6 +16,7 @@ class SettingsProvider extends ChangeNotifier {
   final StorageService _storage;
   late final Future<void> ready;
   Future<void> _writeQueue = Future.value();
+  Future<void>? _retryingLoad;
   _Settings _values = const _Settings();
   bool _disposed = false;
   bool _isInitialized = false;
@@ -24,6 +25,7 @@ class SettingsProvider extends ChangeNotifier {
   String? _error;
 
   bool get isInitialized => _isInitialized;
+  bool get isLoading => !_isInitialized || _retryingLoad != null;
 
   /// Only a complete initial snapshot may replace the running reminder policy.
   /// Save errors do not invalidate the fields that were already committed.
@@ -53,14 +55,38 @@ class SettingsProvider extends ChangeNotifier {
         soundLoopEnabled: await _storage.getSoundLoopEnabled(),
         burnInProtectionEnabled: await _storage.getBurnInProtectionEnabled(),
       );
-      if (!_disposed) _values = values;
+      if (!_disposed) {
+        _values = values;
+        _loadFailed = false;
+        _error = null;
+      }
     } catch (error) {
+      debugPrint('Unable to read settings: $error');
       _loadFailed = true;
-      _error = '设置读取失败：$error';
+      _error = '设置读取失败，请重试读取设置。';
     } finally {
       _isInitialized = true;
       _notify();
     }
+  }
+
+  /// A failed read can be retried without saving the fallback defaults.
+  /// Successful snapshots and pending writes are never replaced by a reload.
+  Future<void> retryLoading() {
+    final pending = _retryingLoad;
+    if (pending != null) return pending;
+    if (_disposed || isAvailable) return Future.value();
+    final operation =
+        () async {
+          await ready;
+          if (!_disposed && _loadFailed) await _initialize();
+        }().whenComplete(() {
+          _retryingLoad = null;
+          _notify();
+        });
+    _retryingLoad = operation;
+    _notify();
+    return operation;
   }
 
   Future<void> setFeedInterval(int minutes) =>

@@ -1,5 +1,7 @@
 {
   "string": [
+    { "name": "widget_name", "value": "喂养概览" },
+    { "name": "widget_description", "value": "查看最近一餐、当日汇总和下一次提醒，点击记录会进入应用确认。" },
     {
       "name": "module_desc",
       "value": "离线喂奶记录与提醒"

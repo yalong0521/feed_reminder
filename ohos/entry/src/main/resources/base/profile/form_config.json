@@ -1,0 +1,23 @@
+{
+  "forms": [
+    {
+      "name": "FeedSummary",
+      "displayName": "$string:widget_name",
+      "description": "$string:widget_description",
+      "src": "./ets/widgets/pages/FeedSummary.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "isDefault": true,
+      "isDynamic": true,
+      "colorMode": "auto",
+      "updateEnabled": true,
+      "scheduledUpdateTime": "00:05",
+      "updateDuration": 0,
+      "defaultDimension": "2*4",
+      "supportDimensions": ["2*4"]
+    }
+  ]
+}

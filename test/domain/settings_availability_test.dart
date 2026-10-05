@@ -27,6 +27,22 @@ class _PartialWriteFailureStorage extends StorageService {
   }
 }
 
+class _RecoveringReadStorage extends StorageService {
+  bool failRead = true;
+  int reads = 0;
+  Completer<void>? readGate;
+  Completer<void>? readStarted;
+
+  @override
+  Future<bool> getBurnInProtectionEnabled() async {
+    reads++;
+    readStarted?.complete();
+    await readGate?.future;
+    if (failRead) throw StateError('Settings temporarily unavailable');
+    return super.getBurnInProtectionEnabled();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -37,6 +53,50 @@ void main() {
       StorageKeys.nightModeEnabled: false,
     });
   });
+
+  test(
+    'failed settings reads retry once and recover the complete stored snapshot',
+    () async {
+      final storage = _RecoveringReadStorage();
+      final settings = SettingsProvider(storage: storage);
+      addTearDown(settings.dispose);
+      await settings.ready;
+      expect(settings.isAvailable, isFalse);
+      expect(settings.feedIntervalMinutes, AppDefaults.feedIntervalMinutes);
+
+      await settings.retryLoading();
+      expect(settings.isAvailable, isFalse);
+      expect(settings.isLoading, isFalse);
+      expect(storage.reads, 2);
+
+      storage.failRead = false;
+      storage.readGate = Completer<void>();
+      storage.readStarted = Completer<void>();
+      final first = settings.retryLoading();
+      final second = settings.retryLoading();
+      expect(identical(first, second), isTrue);
+      await storage.readStarted!.future;
+      expect(settings.isLoading, isTrue);
+      expect(settings.isAvailable, isFalse);
+      expect(settings.feedIntervalMinutes, AppDefaults.feedIntervalMinutes);
+      storage.readGate!.complete();
+      await first;
+      expect(storage.reads, 3);
+      expect(settings.isLoading, isFalse);
+      expect(settings.isAvailable, isTrue);
+      expect(settings.error, isNull);
+      expect(settings.feedIntervalMinutes, 120);
+      expect(settings.soundEnabled, isFalse);
+      expect(settings.nightModeEnabled, isFalse);
+      expect(await storage.getFeedInterval(), 120);
+
+      await settings.setFeedInterval(90);
+      await settings.retryLoading();
+      expect(storage.reads, 3);
+      expect(settings.feedIntervalMinutes, 90);
+      expect(await storage.getFeedInterval(), 90);
+    },
+  );
 
   for (final failRead in [false, true]) {
     test(

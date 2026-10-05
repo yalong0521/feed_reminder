@@ -23,15 +23,15 @@ dependency_overrides:
   audioplayers_web: 5.2.0
   audioplayers_windows: 4.3.0
   path_provider: 2.1.5
-  # In this release OH support is part of wakelock_plus itself. Its companion
-  # interface decodes the native OH isEnabled reply differently from pub.dev.
+  # Keep the OH implementation and its Pigeon interface at the same revision.
+  # This Flutter 3.41 release supports win32 6, as required by file_picker 13.
   wakelock_plus:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus.git
-      ref: 7009f270c6bb1bb4aaf373e226a873a126f9b9f4
+      ref: 5d3040f140b8a7e445c5e7102e811ff08e496905
       path: wakelock_plus
   wakelock_plus_platform_interface:
     git:
       url: https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus.git
-      ref: 7009f270c6bb1bb4aaf373e226a873a126f9b9f4
+      ref: 5d3040f140b8a7e445c5e7102e811ff08e496905
       path: wakelock_plus_platform_interface

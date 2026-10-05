@@ -10,6 +10,9 @@ import '../theme/app_typography.dart';
 import '../utils/time_utils.dart';
 import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
+import '../widgets/meal_amount_dialog.dart';
+import '../widgets/snooze_reminder_dialog.dart';
+import '../widgets/feed_load_failure.dart';
 
 import '../widgets/landscape_feed_panel.dart';
 import '../widgets/countdown_text.dart';
@@ -17,11 +20,13 @@ import '../widgets/overdue_duration.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isActive;
+  final int wakeRevision;
   final VoidCallback? onHistoryRequested;
   final ValueChanged<bool>? onDisplayDimmedChanged;
   const HomeScreen({
     super.key,
     this.isActive = true,
+    this.wakeRevision = 0,
     this.onHistoryRequested,
     this.onDisplayDimmedChanged,
   });
@@ -35,6 +40,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _dimmed = false;
   int _offset = 0;
   String? _lastRecordedId;
+  int? _mealAmountOverride;
+  bool _adjustingMeal = false;
+  bool _choosingSnooze = false;
   final FocusNode _standbyFocus = FocusNode(debugLabel: 'Standby wake control');
   FocusNode? _focusBeforeStandby;
   LogicalKeyboardKey? _wakeKey;
@@ -117,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didUpdateWidget(HomeScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.wakeRevision != oldWidget.wakeRevision) _wake();
     if (widget.isActive != oldWidget.isActive) {
       if (_dimmed) widget.onDisplayDimmedChanged?.call(false);
       _dimmed = false;
@@ -200,7 +209,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     if (!settings.isAvailable) throw StateError('默认奶量尚未读取，请稍后重试');
     final previousIds = {for (final record in feed.feedHistory) record.id};
-    await feed.recordFeed(milkAmountMl: settings.defaultMilkAmountMl);
+    final amount = _mealAmountOverride ?? settings.defaultMilkAmountMl;
+    await feed.recordFeed(milkAmountMl: amount);
     if (!mounted) return;
     // A corrected system clock can put this feeding before a saved record.
     // Undo follows the inserted identity, independently of chronological order.
@@ -208,6 +218,43 @@ class _HomeScreenState extends State<HomeScreen> {
         .where((record) => !previousIds.contains(record.id))
         .firstOrNull
         ?.id;
+    setState(() => _mealAmountOverride = null);
+  }
+
+  Future<void> _adjustMealAmount() async {
+    final settings = context.read<SettingsProvider>();
+    final feed = context.read<FeedProvider>();
+    if (_adjustingMeal || feed.isSaving || !settings.isAvailable) return;
+    _wake();
+    setState(() => _adjustingMeal = true);
+    try {
+      final choice = await showMealAmountDialog(
+        context,
+        currentAmount: _mealAmountOverride ?? settings.defaultMilkAmountMl,
+        defaultAmount: settings.defaultMilkAmountMl,
+      );
+      if (mounted && choice != null) {
+        setState(() => _mealAmountOverride = choice.amount);
+      }
+    } finally {
+      if (mounted) setState(() => _adjustingMeal = false);
+    }
+  }
+
+  Future<void> _snoozeAlert() async {
+    final feed = context.read<FeedProvider>();
+    if (_choosingSnooze || feed.isSaving || feed.isAlertAcknowledged) return;
+    _wake();
+    setState(() => _choosingSnooze = true);
+    try {
+      final minutes = await showSnoozeReminderDialog(context);
+      if (!mounted || minutes == null) return;
+      await feed.snoozeAlert(minutes);
+    } catch (_) {
+      if (mounted) showAppNotice(context, '未能延后提醒，请确认当前提醒状态后重试。');
+    } finally {
+      if (mounted) setState(() => _choosingSnooze = false);
+    }
   }
 
   Future<void> _undoFeed() async {
@@ -224,6 +271,9 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context,
   ) => Consumer2<FeedProvider, SettingsProvider>(
     builder: (context, feed, settings, _) {
+      if (feed.isInitialized && !feed.isAvailable) {
+        return const FeedLoadFailure();
+      }
       final size = MediaQuery.sizeOf(context);
       final landscape = size.width >= 600 && size.width > size.height;
       final overdue = feed.state == FeedState.alerting;
@@ -251,13 +301,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 excluding: _dimmed || _wakeKey != null,
                 child: LandscapeFeedPanel(
                   feed: feed,
-                  defaultMilkAmountMl: settings.defaultMilkAmountMl,
-                  recordingEnabled: settings.isAvailable,
+                  defaultMilkAmountMl:
+                      _mealAmountOverride ?? settings.defaultMilkAmountMl,
+                  recordingEnabled:
+                      feed.isAvailable &&
+                      settings.isAvailable &&
+                      !_adjustingMeal,
+                  isMilkAmountAdjusted: _mealAmountOverride != null,
+                  onAdjustMilk: _adjustMealAmount,
                   quiet: quiet,
                   pulseEnabled: widget.isActive && !_dimmed,
                   onRecord: _recordFeed,
                   onUndo: _undoFeed,
                   onStopAlert: _stopAlert,
+                  onSnooze: _choosingSnooze ? null : _snoozeAlert,
                   onHistory: widget.onHistoryRequested,
                   onBackfill: () {
                     _wake();

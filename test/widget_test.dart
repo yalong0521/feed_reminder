@@ -390,6 +390,76 @@ Future<({FeedProvider feed, SettingsProvider settings})> _mount(
 }
 
 void main() {
+  for (final size in [
+    const Size(390, 844),
+    const Size(844, 390),
+    const Size(1024, 768),
+  ]) {
+    testWidgets('today shortcut replaces a previous date filter at $size', (
+      tester,
+    ) async {
+      final now = DateTime(2026, 10, 4, 12);
+      await _mount(
+        tester,
+        size: size,
+        clock: () => now,
+        seededRecords: [
+          FeedRecord(id: 'shortcut-today', time: now),
+          FeedRecord(id: 'shortcut-yesterday', time: DateTime(2026, 10, 3, 12)),
+        ],
+      );
+      final todayShortcut = find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is AppPressable && widget.semanticLabel == '查看今日喂奶记录',
+          )
+          .hitTestable();
+      await tester.tap(todayShortcut);
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.04 · 1 条记录'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('edit-record-shortcut-today')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('edit-record-shortcut-yesterday')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('history-query-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-start')));
+      await tester.pumpAndSettle();
+      tester
+          .widget<CupertinoDatePicker>(
+            find.byKey(const ValueKey('query-calendar-picker')),
+          )
+          .onDateTimeChanged(DateTime(2026, 10, 3));
+      await tester.tap(find.byKey(const ValueKey('query-calendar-done')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-apply')));
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.03 · 1 条记录'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('nav-home')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-history')));
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.03 · 1 条记录'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('nav-home')));
+      await tester.pumpAndSettle();
+      await tester.tap(todayShortcut);
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.04 · 1 条记录'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('edit-record-shortcut-yesterday')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   setUpAll(() async {
     // Use the bundled clock face so width-based fitting matches the app.
     final clockFont = FontLoader('JournalSerif')
@@ -602,51 +672,47 @@ void main() {
     );
 
     for (final exit in ['alert', 'disabled', 'background', 'page']) {
-      testWidgets(
-        '$exit restores system bars from standby',
-        (tester) async {
-          final app = await _mount(
-            tester,
-            seeded: true,
-            burnInProtection: true,
-            enablePlatformEffects: true,
-          );
-          await tester.pump(const Duration(seconds: 30));
-          await tester.pumpAndSettle();
-          expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
-          expect(appliedHiddenStates.last, isTrue);
+      testWidgets('$exit restores system bars from standby', (tester) async {
+        final app = await _mount(
+          tester,
+          seeded: true,
+          burnInProtection: true,
+          enablePlatformEffects: true,
+        );
+        await tester.pump(const Duration(seconds: 30));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('standby-screen')), findsOneWidget);
+        expect(appliedHiddenStates.last, isTrue);
 
-          switch (exit) {
-            case 'alert':
-              await app.settings.setFeedInterval(1);
-            case 'disabled':
-              await app.settings.setBurnInProtectionEnabled(false);
-            case 'background':
-              tester.binding.handleAppLifecycleStateChanged(
-                AppLifecycleState.inactive,
-              );
-            case 'page':
-              tester
-                  .widget<HomeScreen>(find.byType(HomeScreen))
-                  .onHistoryRequested!();
-          }
+        switch (exit) {
+          case 'alert':
+            await app.settings.setFeedInterval(1);
+          case 'disabled':
+            await app.settings.setBurnInProtectionEnabled(false);
+          case 'background':
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+          case 'page':
+            tester
+                .widget<HomeScreen>(find.byType(HomeScreen))
+                .onHistoryRequested!();
+        }
+        await tester.pumpAndSettle();
+        expect(appliedHiddenStates.last, isFalse);
+        expect(find.byKey(const ValueKey('standby-screen')), findsNothing);
+        expect(app.feed.feedHistory, hasLength(2));
+        if (exit == 'background') {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
           await tester.pumpAndSettle();
           expect(appliedHiddenStates.last, isFalse);
-          expect(find.byKey(const ValueKey('standby-screen')), findsNothing);
-          expect(app.feed.feedHistory, hasLength(2));
-          if (exit == 'background') {
-            tester.binding.handleAppLifecycleStateChanged(
-              AppLifecycleState.resumed,
-            );
-            await tester.pumpAndSettle();
-            expect(appliedHiddenStates.last, isFalse);
-          }
-          expect(tester.takeException(), isNull);
-          await tester.pumpWidget(const SizedBox.shrink());
-          await tester.pumpAndSettle();
-        },
-        variant: TargetPlatformVariant.only(TargetPlatform.android),
-      );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }, variant: TargetPlatformVariant.only(TargetPlatform.android));
     }
 
     testWidgets(
@@ -2822,44 +2888,42 @@ void main() {
     },
   );
 
-  testWidgets(
-    'compact landscape respects system insets with large text',
-    (tester) async {
-      const size = Size(640, 320);
-      const padding = FakeViewPadding(left: 24, right: 24, bottom: 16);
-      await _mount(
-        tester,
-        size: size,
-        scale: 1.8,
-        seeded: true,
-        padding: padding,
-      );
-      _expectTransparentSystemBars(
-        tester,
-        size: size,
-        backgroundBrightness: Brightness.light,
-      );
-      _expectControlsInsideSystemInsets(tester, size: size, padding: padding);
-      for (final target in [
-        find.byKey(const ValueKey('landscape-countdown')),
-        find.byType(FeedButton),
-      ]) {
-        final bounds = tester.getRect(target);
-        expect(bounds.left, greaterThanOrEqualTo(padding.left));
-        expect(bounds.top, greaterThanOrEqualTo(padding.top));
-        expect(bounds.right, lessThanOrEqualTo(size.width - padding.right));
-        expect(bounds.bottom, lessThanOrEqualTo(size.height - padding.bottom));
-      }
-      expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
-      for (final tab in ['nav-history', 'nav-settings', 'nav-home']) {
-        await tester.tap(find.byKey(ValueKey(tab)));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-      }
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.android),
-  );
+  testWidgets('compact landscape respects system insets with large text', (
+    tester,
+  ) async {
+    const size = Size(640, 320);
+    const padding = FakeViewPadding(left: 24, right: 24, bottom: 16);
+    await _mount(
+      tester,
+      size: size,
+      scale: 1.8,
+      seeded: true,
+      padding: padding,
+    );
+    _expectTransparentSystemBars(
+      tester,
+      size: size,
+      backgroundBrightness: Brightness.light,
+    );
+    _expectControlsInsideSystemInsets(tester, size: size, padding: padding);
+    for (final target in [
+      find.byKey(const ValueKey('landscape-countdown')),
+      find.byType(FeedButton),
+    ]) {
+      final bounds = tester.getRect(target);
+      expect(bounds.left, greaterThanOrEqualTo(padding.left));
+      expect(bounds.top, greaterThanOrEqualTo(padding.top));
+      expect(bounds.right, lessThanOrEqualTo(size.width - padding.right));
+      expect(bounds.bottom, lessThanOrEqualTo(size.height - padding.bottom));
+    }
+    expect(find.byType(FeedButton).hitTestable(), findsOneWidget);
+    for (final tab in ['nav-history', 'nav-settings', 'nav-home']) {
+      await tester.tap(find.byKey(ValueKey(tab)));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   for (final overdue in [false, true]) {
     testWidgets(
@@ -3029,13 +3093,16 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('app-notice-close')));
       await tester.pumpAndSettle();
-      final retry = find.widgetWithText(AppButton, '本次提醒已停止');
+      expect(app.feed.isAlertAcknowledgementPersisted, isFalse);
+      final retry = find.widgetWithText(AppButton, '重试保存停止状态');
       expect(tester.widget<AppButton>(retry).onPressed, isNotNull);
       expect(retry.hitTestable(), findsOneWidget);
       await tester.tap(retry);
       await tester.pumpAndSettle();
       expect(storage.acknowledgementAttempts, 2);
       expect(await storage.getAcknowledgedFeedTime(), app.feed.lastFeedTime);
+      expect(app.feed.isAlertAcknowledgementPersisted, isTrue);
+      expect(find.text('本次提醒已停止'), findsOneWidget);
       expect(app.feed.feedHistory, hasLength(2));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

@@ -27,6 +27,9 @@ class LandscapeFeedPanel extends StatelessWidget {
     this.pulseEnabled = true,
     this.defaultMilkAmountMl = 0,
     this.recordingEnabled = true,
+    this.isMilkAmountAdjusted = false,
+    this.onAdjustMilk,
+    this.onSnooze,
   });
   final FeedProvider feed;
   final bool quiet;
@@ -38,6 +41,9 @@ class LandscapeFeedPanel extends StatelessWidget {
   final bool pulseEnabled;
   final int defaultMilkAmountMl;
   final bool recordingEnabled;
+  final bool isMilkAmountAdjusted;
+  final VoidCallback? onAdjustMilk;
+  final VoidCallback? onSnooze;
   bool get _alert => feed.state == FeedState.alerting;
   bool get _warning => feed.state == FeedState.warning;
   bool get _hasRecord => feed.lastFeedTime != null;
@@ -87,19 +93,13 @@ class LandscapeFeedPanel extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
+                    ConstrainedBox(
                       key: ValueKey(
                         landscape ? 'landscape-home' : 'portrait-home',
                       ),
-                      height: landscape
-                          ? 0
-                          : math.max(
-                              84,
-                              MediaQuery.textScalerOf(context).scale(34) * 1.2 +
-                                  8 +
-                                  MediaQuery.textScalerOf(context).scale(14) *
-                                      1.5,
-                            ),
+                      constraints: landscape
+                          ? const BoxConstraints.tightFor(height: 0)
+                          : const BoxConstraints(minHeight: 84),
                       child: landscape ? null : _heading(context),
                     ),
                     if (feed.error != null)
@@ -189,7 +189,9 @@ class LandscapeFeedPanel extends StatelessWidget {
                                   child: Row(
                                     children: [
                                       Text(
-                                        _warning
+                                        feed.isReminderDeferred
+                                            ? '已延后提醒'
+                                            : _warning
                                             ? '快到喂奶时间'
                                             : !_hasRecord
                                             ? '等待第一条记录'
@@ -463,32 +465,78 @@ class LandscapeFeedPanel extends StatelessWidget {
   Widget _countdownFooter(BuildContext context) {
     if (_alert) {
       final stopped = feed.isAlertAcknowledged;
-      final statusColor = stopped
+      final stopping = feed.isStoppingAlert;
+      final saved = feed.isAlertAcknowledgementPersisted;
+      final stopLabel = stopping
+          ? '正在停止提醒…'
+          : stopped
+          ? saved
+                ? '本次提醒已停止'
+                : '重试保存停止状态'
+          : '停止本次提醒';
+      final statusColor = stopped && saved
           ? AppPalette.of(context).textSecondary
           : AppPalette.of(context).alert;
+      final stopContent = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(CupertinoIcons.speaker_slash, size: 18, color: statusColor),
+          const SizedBox(width: 8),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                stopLabel,
+                style: stopped && saved
+                    ? AppTypography.supporting(context)
+                    : null,
+              ),
+            ),
+          ),
+        ],
+      );
       return Align(
         alignment: Alignment.center,
-        child: AppButton(
-          onPressed: onStopAlert,
-          surface: false,
-          destructive: !stopped,
-          padding: EdgeInsets.zero,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(CupertinoIcons.speaker_slash, size: 18, color: statusColor),
-              const SizedBox(width: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Flexible(
+              child: stopped && saved && !stopping
+                  ? Semantics(
+                      liveRegion: true,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Center(
+                          widthFactor: 1,
+                          heightFactor: 1,
+                          child: stopContent,
+                        ),
+                      ),
+                    )
+                  : AppButton(
+                      onPressed: feed.isSaving || stopping ? null : onStopAlert,
+                      surface: false,
+                      destructive: !stopped || !saved,
+                      padding: EdgeInsets.zero,
+                      child: stopContent,
+                    ),
+            ),
+            if (!stopped && onSnooze != null) ...[
+              const SizedBox(width: 12),
               Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    stopped ? '本次提醒已停止' : '停止本次提醒',
-                    style: stopped ? AppTypography.supporting(context) : null,
+                child: AppButton(
+                  key: const ValueKey('snooze-reminder'),
+                  surface: false,
+                  onPressed: feed.isSaving || stopping ? null : onSnooze,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('稍后提醒'),
                   ),
                 ),
               ),
             ],
-          ),
+          ],
         ),
       );
     }
@@ -496,7 +544,9 @@ class LandscapeFeedPanel extends StatelessWidget {
       fit: BoxFit.scaleDown,
       alignment: Alignment.center,
       child: Text(
-        _hasRecord
+        feed.isReminderDeferred
+            ? '下次提醒 ${TimeUtils.formatTime(feed.nextFeedTime!)}'
+            : _hasRecord
             ? '本轮间隔 ${TimeUtils.formatInterval(feed.feedIntervalMinutes)}'
             : '记录后，开始计时',
         style: AppTypography.supporting(context),
@@ -564,8 +614,40 @@ class LandscapeFeedPanel extends StatelessWidget {
   }
 
   Widget _dock(BuildContext context, bool landscape) {
-    final p = AppPalette.of(context);
-    return SizedBox(
+    const actionSize = 60.0;
+    const actionRadius = actionSize / 2;
+    Widget action({
+      required String key,
+      required String label,
+      required IconData icon,
+      required String semanticLabel,
+      required VoidCallback? onPressed,
+    }) => SizedBox(
+      width: actionSize,
+      height: actionSize,
+      child: AppButton(
+        key: ValueKey(key),
+        compact: true,
+        radius: actionRadius,
+        padding: const EdgeInsets.all(6),
+        semanticLabel: semanticLabel,
+        onPressed: onPressed,
+        child: ExcludeSemantics(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18),
+                const SizedBox(height: 3),
+                Text(label, style: AppTypography.caption(context)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final dock = SizedBox(
       key: const ValueKey('feed-control-dock'),
       height: 64,
       child: Row(
@@ -578,34 +660,57 @@ class LandscapeFeedPanel extends StatelessWidget {
               enabled: recordingEnabled && feed.isInitialized && !feed.isSaving,
             ),
           ),
-          SizedBox(width: landscape ? 22 : 12),
-          AppPressable(
-            key: const ValueKey('backfill-feed'),
-            semanticLabel: '补记',
-            excludeSemantics: true,
-            onPressed: feed.isSaving ? null : onBackfill,
-            child: Container(
-              width: 60,
-              height: 60,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: p.primary, width: .8),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    '补记',
-                    style: AppTypography.button.copyWith(color: p.primary),
-                  ),
-                ),
-              ),
+          if (landscape && onAdjustMilk != null) ...[
+            const SizedBox(width: 12),
+            action(
+              key: 'adjust-meal-amount',
+              label: '奶量',
+              icon: CupertinoIcons.pencil,
+              semanticLabel:
+                  '调整本次奶量，$defaultMilkAmountMl 毫升${isMilkAmountAdjusted ? '，已调整' : ''}',
+              onPressed: recordingEnabled && !feed.isSaving
+                  ? onAdjustMilk
+                  : null,
             ),
+          ],
+          const SizedBox(width: 12),
+          action(
+            key: 'backfill-feed',
+            label: '补记',
+            icon: CupertinoIcons.add,
+            semanticLabel: '补记',
+            onPressed: feed.isSaving ? null : onBackfill,
           ),
         ],
       ),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Landscape keeps its full countdown height by placing this independent
+        // action beside the slider. The keyed dock preserves slider/undo state
+        // when rotation inserts or removes the portrait adjustment row.
+        if (!landscape && onAdjustMilk != null) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: AppButton(
+              key: const ValueKey('adjust-meal-amount'),
+              compact: true,
+              surface: false,
+              onPressed: recordingEnabled && !feed.isSaving
+                  ? onAdjustMilk
+                  : null,
+              child: Text(
+                '本次奶量 · $defaultMilkAmountMl mL${isMilkAmountAdjusted ? ' · 已调整' : ' · 调整'}',
+                style: AppTypography.caption(context),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+        dock,
+      ],
     );
   }
 }

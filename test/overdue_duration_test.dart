@@ -1,5 +1,6 @@
 import 'package:feed_reminder/widgets/overdue_duration.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _durationKey = ValueKey('overdue-test-duration');
@@ -79,6 +80,62 @@ void _expectStatic(WidgetTester tester, {bool skipOffstage = true}) {
 }
 
 void main() {
+  testWidgets(
+    'narrow portrait keeps both complete labels inside their glyph bounds',
+    (tester) async {
+      for (final width in [365.0, 390.0]) {
+        for (final scale in [1.0, 1.8]) {
+          for (final minutes in [15, 11519]) {
+            await tester.pumpWidget(
+              MaterialApp(
+                home: MediaQuery(
+                  data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+                  child: Scaffold(
+                    body: Center(
+                      child: SizedBox(
+                        width: width - 48,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: OverdueDuration(
+                            key: _durationKey,
+                            duration: Duration(minutes: minutes),
+                            color: Colors.red,
+                            fontSize: 108,
+                            unitFontSize: 30,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            for (final label in ['超时', '分钟']) {
+              final paragraph = tester.renderObject<RenderParagraph>(
+                find.text(label),
+              );
+              final boxes = paragraph.getBoxesForSelection(
+                const TextSelection(baseOffset: 0, extentOffset: 2),
+              );
+              expect(boxes, isNotEmpty);
+              for (final box in boxes) {
+                // Glyph bearings/letter spacing can extend a subpixel beyond
+                // the advance width without losing either character.
+                expect(box.left, greaterThanOrEqualTo(-.5));
+                expect(box.right, lessThanOrEqualTo(paragraph.size.width + .5));
+              }
+            }
+            expect(
+              tester.getCenter(find.text('$minutes')).dx,
+              closeTo(tester.getCenter(find.byKey(_durationKey)).dx, .01),
+            );
+            expect(tester.takeException(), isNull);
+          }
+        }
+      }
+    },
+  );
+
   testWidgets('overdue pulse breathes in sync without moving nearby content', (
     tester,
   ) async {

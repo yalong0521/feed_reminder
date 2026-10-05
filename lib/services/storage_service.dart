@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/feed_record.dart';
+import '../models/deferred_reminder.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 
@@ -14,6 +15,7 @@ class StorageService {
 
   static const _acknowledgedFeedKey = 'acknowledgedFeedTime';
   static const _acknowledgedFeedRecordKey = 'acknowledgedFeedRecord';
+  static const _deferredReminderKey = 'deferredFeedReminder';
   static const _acceptedPrivacyPolicyVersionKey =
       'acceptedPrivacyPolicyVersion';
   final Future<SharedPreferences> Function() _preferencesLoader;
@@ -179,6 +181,28 @@ class StorageService {
             : {'id': record.id, 'time': record.time.millisecondsSinceEpoch},
       ),
     ),
+  );
+
+  Future<DeferredReminder?> getDeferredReminder() async {
+    final value = (await _prefsSafe).get(_deferredReminderKey);
+    if (value == null) return null;
+    // An optional damaged override must not make the user's history unreadable.
+    try {
+      if (value is! String) return null;
+      final decoded = jsonDecode(value);
+      return decoded is Map<String, dynamic>
+          ? DeferredReminder.fromJson(decoded)
+          : null;
+    } on FormatException {
+      return null;
+    } on ArgumentError {
+      return null;
+    }
+  }
+
+  Future<void> setDeferredReminder(DeferredReminder reminder) => _write(
+    (prefs) =>
+        prefs.setString(_deferredReminderKey, jsonEncode(reminder.toJson())),
   );
 
   /// Imports legacy timestamp-only state. Once a record snapshot exists it

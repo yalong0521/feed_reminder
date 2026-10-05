@@ -239,6 +239,50 @@ class _FeedButtonState extends State<FeedButton>
       }
       final colors = AppPalette.of(context);
       final reduceMotion = MediaQuery.disableAnimationsOf(context);
+      final statusText = _undoing
+          ? '正在撤销…'
+          : _busy
+          ? '正在保存…'
+          : _undoFailed
+          ? '撤销失败'
+          : '已记录';
+      final statusStyle = TextStyle(
+        color: colors.onPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+      );
+      var showStatusIcon = true;
+      if (_saved && widget.onUndo != null) {
+        double textWidth(String text, TextStyle style, TextScaler scaler) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: text,
+              style: DefaultTextStyle.of(context).style.merge(style),
+            ),
+            textDirection: Directionality.of(context),
+            textScaler: scaler,
+          )..layout();
+          final width = painter.width;
+          painter.dispose();
+          return width;
+        }
+
+        final undoWidth =
+            (20 +
+                    textWidth(
+                      '撤销',
+                      AppTypography.button,
+                      MediaQuery.textScalerOf(context),
+                    ))
+                .clamp(44.0, double.infinity);
+        // Prefer readable status and the retry target over a redundant icon.
+        final minimumStatusWidth = textWidth(
+          statusText,
+          statusStyle,
+          TextScaler.noScaling,
+        );
+        showStatusIcon = width - 32 - 35 - undoWidth >= minimumStatusWidth;
+      }
       const inset = 6.0;
       const handle = 52.0;
       final travel = (width - inset * 2 - handle).clamp(1.0, double.infinity);
@@ -259,17 +303,19 @@ class _FeedButtonState extends State<FeedButton>
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      if (_busy)
-                        CupertinoActivityIndicator(color: colors.onPrimary)
-                      else
-                        Icon(
-                          _undoFailed
-                              ? CupertinoIcons.exclamationmark_circle
-                              : CupertinoIcons.check_mark_circled_solid,
-                          color: colors.onPrimary,
-                          size: 25,
-                        ),
-                      const SizedBox(width: 10),
+                      if (showStatusIcon) ...[
+                        if (_busy)
+                          CupertinoActivityIndicator(color: colors.onPrimary)
+                        else
+                          Icon(
+                            _undoFailed
+                                ? CupertinoIcons.exclamationmark_circle
+                                : CupertinoIcons.check_mark_circled_solid,
+                            color: colors.onPrimary,
+                            size: 25,
+                          ),
+                        const SizedBox(width: 10),
+                      ],
                       Expanded(
                         child: Semantics(
                           liveRegion: true,
@@ -278,20 +324,7 @@ class _FeedButtonState extends State<FeedButton>
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
-                            child: Text(
-                              _undoing
-                                  ? '正在撤销…'
-                                  : _busy
-                                  ? '正在保存…'
-                                  : _undoFailed
-                                  ? '撤销失败'
-                                  : '已记录',
-                              style: TextStyle(
-                                color: colors.onPrimary,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                            child: Text(statusText, style: statusStyle),
                           ),
                         ),
                       ),
@@ -300,6 +333,7 @@ class _FeedButtonState extends State<FeedButton>
                           key: const ValueKey('feed-slide-undo'),
                           surface: false,
                           compact: true,
+                          focusColor: colors.onPrimary,
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           onPressed: _busy || !widget.enabled ? null : _undo,
                           child: Text(
@@ -429,42 +463,19 @@ class _FeedButtonState extends State<FeedButton>
                                         child: Opacity(
                                           opacity: (1 - _progress.value * 1.7)
                                               .clamp(0, 1),
-                                          child: FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  _failed
-                                                      ? '未保存，右滑重试'
-                                                      : '滑动记录喂奶',
-                                                  style: AppTypography.button
-                                                      .copyWith(
-                                                        color: colors
-                                                            .textSecondary
-                                                            .withValues(
-                                                              alpha:
-                                                                  widget.enabled
-                                                                  ? 1
-                                                                  : .5,
-                                                            ),
-                                                      ),
-                                                ),
-                                                if (widget.milkAmountMl !=
-                                                        null &&
-                                                    !_failed)
-                                                  Text(
-                                                    widget.milkAmountMl == 0
-                                                        ? '奶量未设置 · 可在设置中配置'
-                                                        : '本次 ${widget.milkAmountMl} mL',
-                                                    key: const ValueKey(
-                                                      'feed-default-milk-amount',
-                                                    ),
-                                                    style:
-                                                        AppTypography.caption(
-                                                          context,
-                                                        ).copyWith(
-                                                          fontSize: 12,
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Flexible(
+                                                flex: 6,
+                                                child: FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Text(
+                                                    _failed
+                                                        ? '未保存，右滑重试'
+                                                        : '滑动记录喂奶',
+                                                    style: AppTypography.button
+                                                        .copyWith(
                                                           color: colors
                                                               .textSecondary
                                                               .withValues(
@@ -476,8 +487,40 @@ class _FeedButtonState extends State<FeedButton>
                                                               ),
                                                         ),
                                                   ),
-                                              ],
-                                            ),
+                                                ),
+                                              ),
+                                              if (widget.milkAmountMl != null &&
+                                                  !_failed)
+                                                Flexible(
+                                                  flex: 5,
+                                                  child: FittedBox(
+                                                    fit: BoxFit.scaleDown,
+                                                    child: Text(
+                                                      widget.milkAmountMl == 0
+                                                          ? '奶量未设置'
+                                                          : '本次 ${widget.milkAmountMl} mL',
+                                                      key: const ValueKey(
+                                                        'feed-default-milk-amount',
+                                                      ),
+                                                      style:
+                                                          AppTypography.caption(
+                                                            context,
+                                                          ).copyWith(
+                                                            fontSize: 12,
+                                                            color: colors
+                                                                .textSecondary
+                                                                .withValues(
+                                                                  alpha:
+                                                                      widget
+                                                                          .enabled
+                                                                      ? 1
+                                                                      : .5,
+                                                                ),
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
                                       ),
@@ -494,8 +537,12 @@ class _FeedButtonState extends State<FeedButton>
                                             fit: BoxFit.scaleDown,
                                             child: Text(
                                               _progress.value >= .92
-                                                  ? '松开确认'
-                                                  : '继续向右滑',
+                                                  ? (_pointerInput
+                                                        ? '松开确认'
+                                                        : '按回车确认')
+                                                  : (_pointerInput
+                                                        ? '继续向右滑'
+                                                        : '继续按右键'),
                                               style: AppTypography.button
                                                   .copyWith(
                                                     color: colors.textPrimary,

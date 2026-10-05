@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:feed_reminder/models/feed_record.dart';
 import 'package:feed_reminder/providers/feed_provider.dart';
 import 'package:feed_reminder/screens/history_screen.dart';
+import 'package:feed_reminder/screens/statistics_screen.dart';
 import 'package:feed_reminder/services/audio_service.dart';
 import 'package:feed_reminder/services/notification_service.dart';
 import 'package:feed_reminder/services/storage_service.dart';
@@ -110,6 +111,141 @@ Widget _dialogLauncher() => Scaffold(
 );
 
 void main() {
+  testWidgets('rapid statistics activation pushes one page and can reopen', (
+    tester,
+  ) async {
+    final provider = await _provider([]);
+    await tester.pumpWidget(_app(provider));
+    await tester.pumpAndSettle();
+    final button = tester.widget<AppButton>(
+      find.byKey(const ValueKey('history-statistics-button')),
+    );
+    button.onPressed!();
+    button.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.byType(StatisticsScreen, skipOffstage: false), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('statistics-back')));
+    await tester.pumpAndSettle();
+    expect(find.byType(StatisticsScreen, skipOffstage: false), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('history-statistics-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(StatisticsScreen), findsOneWidget);
+  });
+
+  testWidgets(
+    'query jumps to one day, retains filtering after edit and clears',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final now = DateTime(2026, 10, 3, 12);
+      final provider = await _provider([
+        FeedRecord(id: 'today-filter', time: now),
+        FeedRecord(
+          id: 'past-filter',
+          time: DateTime(2026, 10, 1, 12),
+          milkAmountMl: 120,
+        ),
+      ], clock: () => now);
+      await tester.pumpWidget(_app(provider));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-query-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-start')));
+      await tester.pumpAndSettle();
+      tester
+          .widget<CupertinoDatePicker>(
+            find.byKey(const ValueKey('query-calendar-picker')),
+          )
+          .onDateTimeChanged(DateTime(2026, 10, 1));
+      await tester.tap(find.byKey(const ValueKey('query-calendar-done')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-apply')));
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.01 · 1 条记录'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('edit-record-today-filter')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('edit-record-past-filter')),
+        findsOneWidget,
+      );
+      await provider.updateFeedRecord(
+        'past-filter',
+        time: DateTime(2026, 10, 2, 12),
+        milkAmountMl: 140,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('这段时间暂无记录'), findsOneWidget);
+      expect(find.text('第一条记录，从这里开始。'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('history-clear-filter')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('history-active-filter')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('edit-record-today-filter')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('edit-record-past-filter')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'history range includes both boundary days and cancellation keeps it',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final now = DateTime(2026, 10, 3, 12);
+      final provider = await _provider([
+        FeedRecord(id: 'range-end', time: DateTime(2026, 10, 2, 23, 59)),
+        FeedRecord(id: 'range-start', time: DateTime(2026, 10, 1)),
+        FeedRecord(id: 'before-range', time: DateTime(2026, 9, 30, 23, 59)),
+      ], clock: () => now);
+      await tester.pumpWidget(_app(provider));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('history-query-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-period')));
+      await tester.pumpAndSettle();
+      for (final field in [
+        ('date-range-start', DateTime(2026, 10, 1)),
+        ('date-range-end', DateTime(2026, 10, 2)),
+      ]) {
+        await tester.tap(find.byKey(ValueKey(field.$1)));
+        await tester.pumpAndSettle();
+        tester
+            .widget<CupertinoDatePicker>(
+              find.byKey(const ValueKey('query-calendar-picker')),
+            )
+            .onDateTimeChanged(field.$2);
+        await tester.tap(find.byKey(const ValueKey('query-calendar-done')));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byKey(const ValueKey('date-range-apply')));
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.01 — 2026.10.02 · 2 条记录'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('edit-record-before-range')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(const ValueKey('history-query-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-single')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('date-range-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.text('2026.10.01 — 2026.10.02 · 2 条记录'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'large same-day history builds rows lazily and reaches old records',
     (tester) async {
@@ -599,20 +735,35 @@ void main() {
   testWidgets('time picker opens at selected current time instead of noon', (
     tester,
   ) async {
-    final provider = await _provider([]);
-    await tester.pumpWidget(_app(provider, home: _dialogLauncher()));
-    await tester.tap(find.text('打开补记'));
-    await tester.pumpAndSettle();
-    final initial = DateTime.now();
-    await tester.tap(find.text('喂奶时间'));
-    await tester.pumpAndSettle();
-    final picker = tester.widget<CupertinoDatePicker>(
-      find.byKey(const ValueKey('app-date-time-picker')),
-    );
-    expect(picker.mode, CupertinoDatePickerMode.time);
-    expect(picker.initialDateTime.hour, initial.hour);
-    expect(picker.initialDateTime.minute, initial.minute);
-    expect(tester.takeException(), isNull);
+    final semantics = tester.ensureSemantics();
+    try {
+      final provider = await _provider([]);
+      await tester.pumpWidget(_app(provider, home: _dialogLauncher()));
+      await tester.tap(find.text('打开补记'));
+      await tester.pumpAndSettle();
+      final recordHeading = tester
+          .getSemantics(find.text('添加喂奶记录'))
+          .getSemanticsData();
+      expect(recordHeading.flagsCollection.isHeader, isTrue);
+      expect(recordHeading.flagsCollection.namesRoute, isTrue);
+      final initial = DateTime.now();
+      await tester.tap(find.text('喂奶时间'));
+      await tester.pumpAndSettle();
+      final pickerHeading = tester
+          .getSemantics(find.text('选择喂奶时间'))
+          .getSemanticsData();
+      expect(pickerHeading.flagsCollection.isHeader, isTrue);
+      expect(pickerHeading.flagsCollection.namesRoute, isTrue);
+      final picker = tester.widget<CupertinoDatePicker>(
+        find.byKey(const ValueKey('app-date-time-picker')),
+      );
+      expect(picker.mode, CupertinoDatePickerMode.time);
+      expect(picker.initialDateTime.hour, initial.hour);
+      expect(picker.initialDateTime.minute, initial.minute);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets(

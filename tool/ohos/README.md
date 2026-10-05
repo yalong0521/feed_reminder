@@ -3,8 +3,9 @@
 使用独立的 Flutter-OH SDK：`3.41.10-ohos-1.0.1`，对应提交
 `adaf911c35c9136a7d18fc424d714c9ec7724e60`、Dart `3.11.5`。
 默认安装路径为 `~/Development/flutter-oh`；可通过 `FLUTTER_OH_ROOT` 修改。
-DevEco 默认路径为 `/Applications/DevEco-Studio.app/Contents`，可通过
-`DEVECO_STUDIO_HOME` 修改。
+DevEco 在 macOS 默认路径为 `/Applications/DevEco-Studio.app/Contents`，在
+Windows 默认路径为 `%ProgramFiles%\Huawei\DevEco Studio`（通常是
+`C:\Program Files\Huawei\DevEco Studio`），可通过 `DEVECO_STUDIO_HOME` 修改。
 
 工程 compile/target 为 API 26，最低运行 HarmonyOS 5.0.5 / API 17，来自所选
 Flutter-OH 引擎发布说明。最低版本声明仍需目标真机验证。
@@ -16,7 +17,7 @@ git clone --depth 1 --branch 3.41.10-ohos-1.0.1 \
   https://gitcode.com/CPF-Flutter/flutter_flutter.git ~/Development/flutter-oh
 ```
 
-在项目根目录执行：
+在项目根目录执行；macOS 使用 Bash 入口：
 
 ```sh
 tool/ohos.sh analyze
@@ -24,7 +25,30 @@ tool/ohos.sh test
 tool/ohos.sh build hap --debug --no-codesign
 tool/ohos.sh build hap --release --no-codesign
 tool/ohos.sh devices
-tool/ohos.sh run -d <device-id>
+```
+
+Windows 在 PowerShell 中直接调用同一个 Python 入口，无需 Bash 或 rsync：
+
+```powershell
+python tool/ohos/run.py prepare
+python tool/ohos/run.py pub get
+python tool/ohos/run.py analyze
+python tool/ohos/run.py test
+python tool/ohos/run.py build hap --release --no-codesign
+python tool/ohos/run.py devices
+```
+
+Windows 入口自动使用 `flutter.bat`、DevEco 的 `tools\node` 和 `jbr`；
+并在子进程中补齐 `OS=Windows_NT`，避免部分嵌入式终端缺失此变量时
+`ohpm.bat` 无法启用延迟变量展开、陷入参数解析递归。
+源码同步和跨进程文件锁使用 Python/Windows API。它会保留签名、本机配置及
+构建/依赖缓存，拒绝同步到工作副本之外的路径。依赖仓库包含路径较深的 Android
+示例，入口通过子进程环境追加 `core.longpaths=true`，保留调用者已有的动态 Git
+配置，不修改系统或全局 Git 配置。主机侧安全测试无需 Flutter、
+手机或签名，可在项目根目录执行：
+
+```sh
+python -m unittest discover -s test/tool -p '*_test.py' -v
 ```
 
 `tool/ohos.sh pub get` 会同步工作副本、解析依赖并生成 Flutter/Hvigor 插件配置。
@@ -41,12 +65,66 @@ tool/ohos.sh run -d <device-id>
 保持相对位置，整个签名目录只允许本机用户访问。DevEco 重新生成自动签名时
 可能覆盖 `~/.ohos/config/` 中的材料；
 覆盖更新必须保留原签名身份，不能只备份引用路径。申请能力后更新 Profile 时，
-也需核对应用标识、证书和原安装包一致，避免触发签名不一致而被迫卸载。
+也需核对应用标识、证书和原安装包一致；签名不一致时停止安装并修正配置，
+不能通过卸载旧版来继续覆盖更新。
 `--no-codesign` 产物仅用于编译验证，不能视为已完成真机安装验证。
 
-配置完成后执行 `tool/ohos.sh run --release -d <device-id>` 可构建并安装。
+**已有真实记录的手机应将构建与安装分开。** 固定版本 Flutter-OH 的
+`ohos_device.dart` 中，`installApp()` 在覆盖安装失败后会调用 `uninstallApp()`
+卸载已安装的旧版，再尝试重新安装。因此不要对这类设备使用 `flutter run`、
+`tool/ohos.sh run` 或 `python tool/ohos/run.py run`。
+
+签名配置完成后，先构建已签名的 Release 包，再单独使用 `hdc install -r`
+覆盖安装；macOS 构建命令为 `tool/ohos.sh build hap --release`，Windows 示例：
+
+```powershell
+python tool/ohos/run.py build hap --release
+```
+
+确认构建成功，并从本次输出中选取已签名的 Release HAP。以下路径和设备 ID
+需替换为实际值；使用自定义 DevEco 安装目录时也需修改 `hdc.exe` 路径：
+
+```powershell
+$ohosHdc = 'C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
+& $ohosHdc -t '<device-id>' install -r '<已签名ReleaseHAP的绝对路径>'
+```
+
+检查安装输出确认成功后，才启动应用；覆盖失败立即停止，保留旧应用和数据，
+不追加卸载命令。不能仅凭 `hdc` 进程退出码认定安装成功，还需检查设备返回的
+安装结果。启动命令为：
+
+```powershell
+& $ohosHdc -t '<device-id>' shell aa start -a EntryAbility -b com.weiyalong.naidianji
+```
+
+仅在没有需要保留数据的独立测试设备上，才可使用
+`tool/ohos.sh run --release -d <device-id>` 或对应 Python 入口的 `run` 命令。
 手机需保持解锁；系统锁屏会阻止启动应用。自动调试签名绑定 Profile 中的设备，
 即使使用 Release 编译模式也仍是调试签名，正式上架需另行配置发布签名。
+
+### 本轮构建与安装状态
+
+Windows 已配置上述 Flutter-OH 固定版本与 DevEco/API 26，完成主应用及并存
+测试应用的已签名 Release HAP 构建。Flutter-OH 主机测试 485 项通过、0 跳过，
+静态分析无问题；Python 构建入口测试 15 项通过。
+
+原标识 `com.weiyalong.naidianji` 的 `hdc install -r` 返回 `9568332`（签名不匹配），
+未执行卸载。按用户选择另建并单独签名的 `com.weiyalong.naidianji.dev` 已并存安装，
+设备返回 `install bundle successfully`，商店版及其数据保留。两种标识的数据与授权
+互相隔离，主应用标识保持不变。
+
+并存测试产物为 `build/ohos_releases/naidianji-test-release.hap`，大小 25.6 MB，
+包内 `debug=false` 且包含 AOT 产物 `libapp.so`；这是 Release 编译、绑定设备的
+调试签名，不是商店发布签名。`aa start` 已成功，设备任务状态确认测试版位于前台，
+进程持续运行；真实手机截图 `build/ohos_preview_launch.jpeg` 确认设置页正常渲染。
+
+设备日志 `build/ohos_preview_launch.log` 显示 `publishReminder` 返回 `1700002` /
+`reminder_limit_exceeded`（后台提醒额度受限）。应用已捕获原生错误，未造成闪退；
+测试签名 Profile 的 `bundleName` 为 `com.weiyalong.naidianji.dev`、`profileType`
+为 `debug`，`appServicesCapabilities` 为空，未包含代理提醒开放能力。原应用已获批的
+能力不会自动继承到新标识，需要为测试身份配置对应能力后再验后台通知。错误码本身
+不足以确认唯一原因，系统配额仍需核查，后台提醒尚未验收通过。卡片和系统文件操作
+仍待真机专项验收；本轮未修改提醒算法或申请新账号、发布商店包。
 
 ## 启动画面
 
@@ -93,6 +171,9 @@ DevEco 26 也可在「项目结构 → 签名配置 → 开通开放能力」选
 Connect 启用托管、填写并发布声明后，须将该声明随应用版本提交审核。不能仅替换
 一个网页链接，或仅凭本机安装成功，判断托管配置已经生效。
 
+本轮本地政策版本更新为 2026-10-03，补充奶量、延后状态、桌面卡片摘要及用户主动备份/恢复/导出。
+鸿蒙发布前需同步这些实际功能到 AppGallery Connect 托管声明；本次代码修改未发布托管声明。
+
 正式版本的首次隐私弹窗由系统管理，鸿蒙路径不再弹出应用自有的首次隐私提示，
 也不使用其他平台保存在本机的同意版本。业务启动依赖系统门禁，通知权限申请
 须在门禁通过且应用回到前台后执行，不能主动重复调用系统同意弹窗来补一次提示。
@@ -136,19 +217,26 @@ SDK、Node、Java、ohpm、hvigor、hdc 的环境只注入当前子进程，不�
 | 本地记录、设置   | `shared_preferences_ohos` 2.5.4，`4a7a536bba8447c7d4eacde2fb1a2e0fbe2da044`                           | 附加联邦实现，保留普通 `shared_preferences`；支持 legacy `setValue/getAll`、写入 flush、失败返回。                                |
 | 音频资产临时文件 | `path_provider_ohos` 2.2.17，`d4e49daa0acbd0bc419d58b1da27d64d44fab54b`                               | 附加联邦实现，提供 `AudioCache` 使用的临时目录。                                                                                  |
 | 提醒声音         | `audioplayers` 6.5.1、`audioplayers_ohos`、对应 interface，`b853cdafdef1549be31b478a954f6d8b36d314e6` | 此版本 OH 原生 global init 不回传结果，配套 Dart 主包跳过该初始化；interface 含 OH AudioContext。需整体覆盖，不能只增加 OH 插件。 |
-| 屏幕常亮         | `wakelock_plus` 1.4.0、对应 interface，`7009f270c6bb1bb4aaf373e226a873a126f9b9f4`                     | 此版本已将 OH 原生实现合并至主包；专用 interface 对齐 OH 的 `isEnabled` 返回格式。                                                |
+| 屏幕常亮         | `wakelock_plus` 1.6.1、对应 interface，`5d3040f140b8a7e445c5e7102e811ff08e496905`                     | 使用 Flutter 3.41 适配提交，原生实现与 Pigeon 接口成对更新；支持 `file_picker` 13 所需的 `win32` 6。                              |
 
 旧版 `wakelock_plus_ohos` 是独立包，但其 Windows/Linux 依赖范围与本项目当前
 `wakelock_plus` 冲突，因此这里选择较新的合并版本。音频 fork 的其他平台插件
 及 `path_provider` 在覆盖文件中固定为 hosted 版本，避免其未指定 ref 的传递
 Git 依赖进入构建。上述覆盖只影响鸿蒙副本。
 
+固定的音频 fork 提交含一个无法从上游下载的 Git LFS 对象，位于
+`packages/audioplayers/example/ohos/dta/icudtl.dat`。它只属于上游示例应用，
+本工程使用 Flutter-OH SDK 提供的引擎运行时，不使用该示例文件。因此入口默认仅在
+构建子进程中设置 `GIT_LFS_SKIP_SMUDGE=1`，让依赖源码可以完成检出；不会修改
+全局 Git/LFS 配置。调用者显式设置此变量时保留其值。升级依赖时必须重新核对
+是否出现实际构建所需的 LFS 文件，不能直接沿用这一假设。
+
 源码来源：
 
 - [shared_preferences_ohos](https://gitcode.com/CPF-Flutter/flutter_packages/tree/4a7a536bba8447c7d4eacde2fb1a2e0fbe2da044/packages/shared_preferences/shared_preferences_ohos)
 - [path_provider_ohos](https://gitcode.com/CPF-Flutter/flutter_packages/tree/d4e49daa0acbd0bc419d58b1da27d64d44fab54b/packages/path_provider/path_provider_ohos)
 - [audioplayers](https://gitcode.com/CPF-Flutter/flutter_audioplayers/tree/b853cdafdef1549be31b478a954f6d8b36d314e6/packages)
-- [wakelock_plus](https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus/tree/7009f270c6bb1bb4aaf373e226a873a126f9b9f4)
+- [wakelock_plus](https://gitcode.com/CPF-Flutter/fluttertpc_wakelock_plus/tree/5d3040f140b8a7e445c5e7102e811ff08e496905)
 
 已将成功解析并验证的锁文件保存为 `tool/ohos/pubspec.lock`，供新的鸿蒙工作
 副本使用。已有工作副本会保留自己的锁，
@@ -156,9 +244,54 @@ Git 依赖进入构建。上述覆盖只影响鸿蒙副本。
 
 ## 必须执行的设备验证
 
+### 桌面卡片与文件备份
+
+`FeedReminderFormAbility` 提供“喂养概览”2×4 ArkTS 卡片，跟随系统浅深色。
+卡片展示最近一餐的时间与奶量、指定日期的汇总、下一次提醒绝对时间；停止本轮提醒
+后明确显示已停止。0 mL 显示“未记录奶量”，不解释为实际未喝奶。点击摘要进入
+计时页，“记录喂奶”进入应用内确认面板，原生卡片不会直接创建记录。
+
+`feed_reminder/home_widget` 仅接收隐私门禁通过、记录加载及保存成功后的摘要。
+App 独占摘要 Preferences，FormExtension 独占卡片实例 Preferences；两者通过
+应用沙箱内原子替换的 JSON 投影交换数据，避免跨进程共享 Preferences。
+卡片首次同步帧使用不含用户数据的占位内容，再读取最近完整摘要。快照和卡片刷新
+失败不影响喂养记录保存；更新请求按顺序处理，失败后相同摘要仍可重试。
+
+应用不运行时只会在系统允许的卡片生命周期回调中读取最近摘要，不运行后台秒级
+倒计时。页面固定显示统计日期、更新时间及快照时区，跨日后也不把旧汇总称为
+“今日”。定点刷新由系统调度，不能视作实时性保证；前台恢复及业务变化后会发布
+新的摘要。此投影不包含完整历史，卸载应用时由应用沙箱一起清除。
+
+`feed_reminder/data_files` 通过 DocumentViewPicker 保存 JSON/CSV 或读取单个
+JSON 备份，只访问用户选择的 URI，无额外广泛文件权限。导入上限 10 MiB，严格
+UTF-8 解码；导出逐块写入、fsync 并关闭后才报告成功。CSV 在最终字节输出处补
+UTF-8 BOM，避免 MethodChannel 的字符串解码移除 BOM 后影响中文识别。
+文件选择取消返回空结果；读取、写入、编码、超限和权限错误交由应用提示。
+
+新增 Dart 测试可用普通 Flutter 运行，但不能证明原生 ArkTS 编译或桌面渲染。
+另可使用 Node 24 执行 `node --test test/native/home_widget_native_test.cjs`，
+通过类型擦除加载实际非 UI ArkTS 控制流并注入内存平台替身。本轮 10 项通过，
+覆盖更新竞争、失败后重试、移除卡片、跨夏令时显示和启动入口；这不检查 ArkTS
+语法约束、系统 API 可用性、HAP 打包或设备行为。
+当前 Windows 环境已完成 API 26 的 ArkTS 编译及已签名 Release HAP 构建，
+并存测试包已安装并成功启动，设备截图已验证设置页渲染。后台代理提醒仍返回
+额度受限错误，配额与能力状态需要继续确认；以下项目仍需单独验证：
+
+- Debug HAP 构建，以及 API 17 与目标版本的卡片加载。
+- 首次启动前添加卡片、隐私门禁、冷/暖启动、重复点按和取消记录确认。
+- 多卡片更新/移除、编辑/删除/恢复记录、延后与停止提醒、浅深色、大字体。
+- 跨日、时区变化、划掉进程、重启后日期标签与更新边界。
+- 文件保存/取消/覆盖、中文 CSV、损坏 UTF-8、10 MiB 边界及写入失败后的重试。
+
+API 依据：[FormExtensionAbility 生命周期](https://developer.huawei.com/consumer/en/doc/harmonyos-guides-V5/arkts-ui-widget-lifecycle-V5)、
+[DocumentViewPicker](https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-file-picker)、
+[Preferences 单进程限制](https://github.com/openharmony/interface_sdk-js/blob/master/api/@ohos.data.preferences.d.ts)。
+
 普通 Flutter 的测试在项目根目录执行。新增的
 `test/harmony_notification_service_test.dart` 使用 Flutter-OH 的平台枚举检查
 时间戳、声音参数、初始化和错误传播；在普通 Flutter 下会明确跳过。
+本轮 Flutter-OH 主机测试已执行这些专项，合计 485 项通过、0 跳过；这仍不是
+手机上的原生通知投递或存储集成测试。
 原生存储可以沿用有独立测试键空间的集成测试：
 
 ```sh

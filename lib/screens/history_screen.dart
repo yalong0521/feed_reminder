@@ -9,20 +9,26 @@ import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import '../widgets/add_feed_record_dialog.dart';
 import '../widgets/app_controls.dart';
+import '../widgets/app_date_range_picker.dart';
 import '../widgets/app_message_dialog.dart';
 import '../widgets/app_page_header.dart';
+import '../widgets/feed_load_failure.dart';
 import 'statistics_screen.dart';
 
 typedef _HistorySnapshot = ({
   List<FeedRecord> records,
   bool initialized,
+  bool available,
   bool saving,
   String? error,
   DateTime day,
 });
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  const HistoryScreen({super.key, this.todayFilterRequest = 0});
+
+  /// A new request opens today's records without resetting ordinary tab visits.
+  final int todayFilterRequest;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -30,6 +36,60 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   bool _confirmingDelete = false;
+  bool _openingStatistics = false;
+  DateTimeRange? _filter;
+  final _journalController = ScrollController();
+
+  @override
+  void didUpdateWidget(HistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.todayFilterRequest != oldWidget.todayFilterRequest) {
+      final today = calendarDate(context.read<FeedProvider>().referenceTime);
+      _setFilter(DateTimeRange(start: today, end: today));
+    }
+  }
+
+  @override
+  void dispose() {
+    _journalController.dispose();
+    super.dispose();
+  }
+
+  void _setFilter(DateTimeRange? range) {
+    setState(() => _filter = range);
+    if (_journalController.hasClients) _journalController.jumpTo(0);
+  }
+
+  Future<void> _openStatistics() async {
+    if (_openingStatistics) return;
+    _openingStatistics = true;
+    try {
+      await Navigator.of(context).push<void>(
+        CupertinoPageRoute(builder: (_) => const StatisticsScreen()),
+      );
+    } finally {
+      _openingStatistics = false;
+    }
+  }
+
+  Future<void> _queryDates() async {
+    final provider = context.read<FeedProvider>();
+    final today = calendarDate(provider.referenceTime);
+    var earliest = DateTime(2020);
+    for (final record in provider.feedHistory) {
+      final date = calendarDate(record.time);
+      if (date.isBefore(earliest)) earliest = date;
+    }
+    final range = await showAppDateRangePicker(
+      context,
+      now: provider.referenceTime,
+      initial: _filter ?? DateTimeRange(start: today, end: today),
+      title: '查询日期',
+      allowSingleDay: true,
+      earliestDate: earliest,
+    );
+    if (range != null && mounted) _setFilter(range);
+  }
 
   Future<void> _deleteRecord(FeedRecord record) async {
     if (_confirmingDelete) return;
@@ -95,6 +155,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             return (
               records: provider.feedHistory,
               initialized: provider.isInitialized,
+              available: provider.isAvailable,
               saving: provider.isSaving,
               error: provider.error,
               day: DateTime(now.year, now.month, now.day),
@@ -104,16 +165,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
             if (!snapshot.initialized) {
               return const Center(child: CupertinoActivityIndicator());
             }
+            if (!snapshot.available) return const FeedLoadFailure();
 
             final records = snapshot.records;
+            final filter = _filter;
+            final visibleRecords = filter == null
+                ? records
+                : records
+                      .where((record) {
+                        final date = calendarDate(record.time);
+                        return !date.isBefore(filter.start) &&
+                            !date.isAfter(filter.end);
+                      })
+                      .toList(growable: false);
             final todayCount = context.read<FeedProvider>().todayRecords.length;
             final groups = <DateTime, List<FeedRecord>>{};
-            for (final record in records) {
-              final day = DateTime(
-                record.time.year,
-                record.time.month,
-                record.time.day,
-              );
+            for (final record in visibleRecords) {
+              final day = calendarDate(record.time);
               groups.putIfAbsent(day, () => []).add(record);
             }
             final days = groups.keys.toList()..sort((a, b) => b.compareTo(a));
@@ -149,6 +217,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
                 final journal = CustomScrollView(
                   key: const PageStorageKey('feed-history-scroll'),
+                  controller: _journalController,
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
@@ -159,11 +228,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           compact: compact,
                           saving: snapshot.saving,
                           onAdd: () => showAddFeedRecordDialog(context),
-                          onStatistics: () => Navigator.of(context).push<void>(
-                            CupertinoPageRoute(
-                              builder: (_) => const StatisticsScreen(),
-                            ),
-                          ),
+                          onQuery: _queryDates,
+                          onStatistics: _openStatistics,
                         ),
                       ),
                     ),
@@ -176,6 +242,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             totalCount: records.length,
                             vertical: false,
                             compact: compact,
+                          ),
+                        ),
+                      ),
+                    if (filter != null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Wrap(
+                            spacing: 12,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                '${calendarRangeLabel(filter)} · ${visibleRecords.length} 条记录',
+                                key: const ValueKey('history-active-filter'),
+                                style: AppTypography.supporting(context),
+                              ),
+                              AppButton(
+                                key: const ValueKey('history-clear-filter'),
+                                compact: true,
+                                onPressed: () => _setFilter(null),
+                                child: const Text('清除筛选'),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -209,14 +299,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           ),
                         ),
                       ),
-                    if (records.isEmpty && snapshot.error == null)
+                    if (filter != null &&
+                        visibleRecords.isEmpty &&
+                        snapshot.error == null)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '这段时间暂无记录',
+                                style: AppTypography.sectionTitle(context),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '可查询其他日期，或清除筛选查看全部记录。',
+                                style: AppTypography.supporting(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else if (records.isEmpty && snapshot.error == null)
                       SliverToBoxAdapter(
                         child: _EmptyHistory(
                           saving: snapshot.saving,
                           onAdd: () => showAddFeedRecordDialog(context),
                         ),
                       )
-                    else if (records.isNotEmpty)
+                    else if (visibleRecords.isNotEmpty)
                       SliverList.builder(
                         itemCount: entries.length,
                         itemBuilder: (context, index) {
@@ -312,33 +424,17 @@ class _HistoryHeader extends StatelessWidget {
     required this.saving,
     required this.onAdd,
     required this.onStatistics,
+    required this.onQuery,
   });
 
   final bool compact;
   final bool saving;
   final VoidCallback onAdd;
   final VoidCallback onStatistics;
+  final VoidCallback onQuery;
 
   @override
   Widget build(BuildContext context) {
-    final colors = AppPalette.of(context);
-    final add = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.primary),
-      ),
-      child: AppButton(
-        key: const ValueKey('history-backfill-button'),
-        compact: true,
-        surface: false,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        onPressed: saving ? null : onAdd,
-        child: Text(
-          '补记喂奶',
-          style: AppTypography.button.copyWith(color: colors.primary),
-        ),
-      ),
-    );
     return AppPageHeader(
       title: AppStrings.history,
       subtitle: '把每一次照顾，留在时间里。',
@@ -347,6 +443,19 @@ class _HistoryHeader extends StatelessWidget {
         spacing: 10,
         runSpacing: 10,
         children: [
+          AppButton(
+            key: const ValueKey('history-query-button'),
+            compact: true,
+            onPressed: onQuery,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(CupertinoIcons.calendar, size: 18),
+                SizedBox(width: 7),
+                Text('查询日期'),
+              ],
+            ),
+          ),
           AppButton(
             key: const ValueKey('history-statistics-button'),
             compact: true,
@@ -360,7 +469,19 @@ class _HistoryHeader extends StatelessWidget {
               ],
             ),
           ),
-          add,
+          AppButton(
+            key: const ValueKey('history-backfill-button'),
+            compact: true,
+            onPressed: saving ? null : onAdd,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(CupertinoIcons.add, size: 18),
+                SizedBox(width: 7),
+                Text('补记喂奶'),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -507,24 +628,38 @@ class _DeleteRecordDetail extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border.symmetric(horizontal: BorderSide(color: colors.border)),
       ),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 16,
-        runSpacing: 4,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            _fullDate(record.time),
-            style: AppTypography.supporting(context),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 16,
+            runSpacing: 4,
+            children: [
+              Text(
+                _fullDate(record.time),
+                style: AppTypography.supporting(context),
+              ),
+              Text(
+                TimeUtils.formatTime(record.time),
+                style: TextStyle(
+                  fontSize: 36,
+                  height: 1.2,
+                  color: colors.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
           Text(
-            TimeUtils.formatTime(record.time),
-            style: TextStyle(
-              fontSize: 36,
-              height: 1.2,
-              color: colors.primary,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            record.milkAmountMl == 0
+                ? '本次奶量 · 未记录'
+                : '本次奶量 · ${record.milkAmountMl} mL',
+            key: const ValueKey('delete-record-milk-amount'),
+            style: AppTypography.supporting(context),
           ),
         ],
       ),

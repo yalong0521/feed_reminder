@@ -157,14 +157,19 @@ class AppMessageDialog extends StatelessWidget {
   }
 }
 
+/// Shared motion, scrim and keyboard behavior for all in-app modal surfaces,
+/// including editors and pickers with their own content layouts.
 RawDialogRoute<T> createAppMessageDialogRoute<T>(
   BuildContext context, {
   required WidgetBuilder builder,
+  String? barrierLabel,
   RouteSettings? settings,
 }) => RawDialogRoute<T>(
   settings: settings,
   barrierDismissible: true,
-  barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+  barrierLabel:
+      barrierLabel ??
+      MaterialLocalizations.of(context).modalBarrierDismissLabel,
   barrierColor: Colors.black.withValues(alpha: .3),
   traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
   transitionDuration: Duration(
@@ -178,7 +183,9 @@ RawDialogRoute<T> createAppMessageDialogRoute<T>(
         }
       },
     },
-    child: Focus(autofocus: true, child: builder(context)),
+    // A scope lets an editor's own autofocus win while keeping Escape active
+    // in dialogs without an initially focused control.
+    child: FocusScope(autofocus: true, child: builder(context)),
   ),
   transitionBuilder: (context, animation, secondaryAnimation, child) =>
       FadeTransition(

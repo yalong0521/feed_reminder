@@ -17,6 +17,9 @@ import 'screens/settings_screen.dart';
 import 'services/audio_service.dart';
 import 'services/notification_service.dart';
 import 'services/privacy_service.dart';
+import 'services/home_widget_service.dart';
+import 'models/home_widget_snapshot.dart';
+import 'widgets/add_feed_record_dialog.dart';
 import 'services/storage_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_typography.dart';
@@ -32,6 +35,7 @@ class FeedReminderApp extends StatefulWidget {
   final NotificationService? notificationService;
   final FeedProvider? feedProvider;
   final SettingsProvider? settingsProvider;
+  final HomeWidgetService? homeWidgetService;
   final bool enablePlatformEffects;
   const FeedReminderApp({
     super.key,
@@ -40,6 +44,7 @@ class FeedReminderApp extends StatefulWidget {
     this.notificationService,
     this.feedProvider,
     this.settingsProvider,
+    this.homeWidgetService,
     this.enablePlatformEffects = true,
   });
   @override
@@ -53,6 +58,28 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
   bool _savingConsent = false;
   bool _consentReadFailed = false;
   String? _notice;
+  final _noticeKey = GlobalKey();
+
+  void _showConsentNotice(String message) {
+    setState(() => _notice = message);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final noticeContext = _noticeKey.currentContext;
+      if (noticeContext == null) return;
+      // Feedback lives after the policy text; reveal it even when the action
+      // came from the fixed footer or repeats a previously displayed message.
+      unawaited(
+        Scrollable.ensureVisible(
+          noticeContext,
+          alignment: 1,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+          duration: MediaQuery.disableAnimationsOf(noticeContext)
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+        ),
+      );
+    });
+  }
 
   @override
   void initState() {
@@ -86,8 +113,8 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
       setState(() {
         _checkingConsent = false;
         _consentReadFailed = true;
-        _notice = '无法读取隐私确认状态，请重试。';
       });
+      _showConsentNotice('无法读取隐私确认状态，请重试。');
     }
   }
 
@@ -106,8 +133,8 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
       if (!mounted) return;
       setState(() {
         _savingConsent = false;
-        _notice = '隐私确认保存失败，请重试。同意成功前不会启动记录与提醒功能。';
       });
+      _showConsentNotice('隐私确认保存失败，请重试。同意成功前不会启动记录与提醒功能。');
     }
   }
 
@@ -120,6 +147,7 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
         notificationService: widget.notificationService,
         feedProvider: widget.feedProvider,
         settingsProvider: widget.settingsProvider,
+        homeWidgetService: widget.homeWidgetService,
         enablePlatformEffects: widget.enablePlatformEffects,
       );
     }
@@ -166,7 +194,14 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
                           ),
                           if (_notice != null) ...[
                             const SizedBox(height: 12),
-                            Semantics(liveRegion: true, child: Text(_notice!)),
+                            Semantics(
+                              key: _noticeKey,
+                              liveRegion: true,
+                              child: Text(
+                                _notice!,
+                                key: const ValueKey('privacy-consent-notice'),
+                              ),
+                            ),
                           ],
                         ],
                       ),
@@ -175,9 +210,9 @@ class _FeedReminderAppState extends State<FeedReminderApp> {
                           key: const ValueKey('privacy-consent-decline'),
                           onPressed: _savingConsent
                               ? null
-                              : () => setState(() {
-                                  _notice = '您暂未同意，可继续阅读隐私政策，再决定是否使用奶点记。';
-                                }),
+                              : () => _showConsentNotice(
+                                  '您暂未同意，可继续阅读隐私政策，再决定是否使用奶点记。',
+                                ),
                           child: const Text('暂不同意'),
                         ),
                         if (_consentReadFailed)
@@ -214,6 +249,7 @@ class _ConsentedFeedReminderApp extends StatefulWidget {
     this.notificationService,
     this.feedProvider,
     this.settingsProvider,
+    this.homeWidgetService,
     required this.enablePlatformEffects,
   });
 
@@ -222,6 +258,7 @@ class _ConsentedFeedReminderApp extends StatefulWidget {
   final NotificationService? notificationService;
   final FeedProvider? feedProvider;
   final SettingsProvider? settingsProvider;
+  final HomeWidgetService? homeWidgetService;
   final bool enablePlatformEffects;
 
   @override
@@ -237,6 +274,12 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
   late final NotificationService _notifications;
   late final SettingsProvider _settings;
   late final FeedProvider _feed;
+  late final HomeWidgetService _homeWidgets;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  String? _pendingWidgetAction;
+  bool _processingWidgetAction = false;
+  int _homeWakeRevision = 0;
+  int _todayHistoryRequest = 0;
   int _index = 0;
   late bool _foreground;
   bool _initializingNotifications = false;
@@ -268,17 +311,117 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
           notificationService: _notifications,
         );
     _feed.setForeground(_foreground);
+    _homeWidgets = widget.homeWidgetService ?? HomeWidgetService();
+    if (widget.enablePlatformEffects) {
+      _homeWidgets.setActionHandler(_receiveWidgetAction);
+    }
     _settings.addListener(_syncSettings);
+    _settings.addListener(_syncHomeWidget);
     _feed.addListener(_syncWakelock);
+    _feed.addListener(_syncHomeWidget);
     Future.wait([_settings.ready, _feed.ready]).then((_) {
       if (!mounted) return;
       _syncSettings();
       _syncWakelock();
+      _syncHomeWidget();
+      if (widget.enablePlatformEffects) unawaited(_readWidgetLaunch());
     });
     if (widget.enablePlatformEffects) {
       _syncSystemUi();
       unawaited(_initializeNotifications());
     }
+  }
+
+  void _syncHomeWidget() {
+    if (!mounted ||
+        !widget.enablePlatformEffects ||
+        !_homeWidgets.isSupported ||
+        !_feed.isAvailable ||
+        !_settings.isAvailable ||
+        _feed.isSaving ||
+        _settings.isSaving) {
+      return;
+    }
+    // Publish committed state only. The optional native service deduplicates
+    // clock ticks, serializes writes, and isolates failures from feed storage.
+    unawaited(
+      _homeWidgets.update(
+        HomeWidgetSnapshot.fromRecords(
+          records: _feed.feedHistory,
+          now: _feed.referenceTime,
+          nextFeedTime: _feed.nextFeedTime,
+          reminderAcknowledged: _feed.isAlertAcknowledgementPersisted,
+        ),
+      ),
+    );
+    _processWidgetAction();
+  }
+
+  Future<void> _readWidgetLaunch() async {
+    final action = await _homeWidgets.consumePendingAction();
+    if (mounted && action != null) _receiveWidgetAction(action);
+  }
+
+  void _receiveWidgetAction(String action) {
+    if (!mounted ||
+        _processingWidgetAction ||
+        (action != 'open_timer' && action != 'record_feed')) {
+      return;
+    }
+    _pendingWidgetAction = action;
+    _processWidgetAction();
+  }
+
+  void _processWidgetAction() {
+    if (_pendingWidgetAction == null ||
+        _processingWidgetAction ||
+        !_foreground ||
+        !_feed.isAvailable ||
+        !_settings.isAvailable) {
+      return;
+    }
+    _processingWidgetAction = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final navigator = _navigatorKey.currentState;
+      if (navigator == null || !_foreground) {
+        _processingWidgetAction = false;
+        return;
+      }
+      final action = _pendingWidgetAction;
+      _pendingWidgetAction = null;
+      try {
+        setState(() {
+          _index = 0;
+          _displayDimmed = false;
+          _homeWakeRevision++;
+        });
+        _syncWakelock();
+        _syncSystemUi();
+        // Return from ordinary pages, but retain any form or in-flight file
+        // operation. A card action must not discard the user's pending input.
+        navigator.popUntil(
+          (route) =>
+              route.isFirst ||
+              route is PopupRoute ||
+              route.popDisposition == RoutePopDisposition.doNotPop,
+        );
+        if (navigator.canPop()) {
+          showAppNotice(navigator.context, '请先完成当前操作，再使用桌面卡片。');
+          return;
+        }
+        if (action == 'record_feed') {
+          if (_feed.isSaving) {
+            showAppNotice(navigator.context, '请先完成当前操作，再记录本次喂奶。');
+          } else {
+            await showAddFeedRecordDialog(navigator.context);
+          }
+        }
+      } finally {
+        _processingWidgetAction = false;
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   void _syncSystemUi({bool restore = false, bool force = false}) {
@@ -392,6 +535,9 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     _syncSystemUi(force: foreground);
     if (foreground && widget.enablePlatformEffects) {
       unawaited(_initializeNotifications());
+      _syncHomeWidget();
+      _processWidgetAction();
+      unawaited(_readWidgetLaunch());
     }
   }
 
@@ -402,6 +548,11 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     });
     _syncWakelock();
     _syncSystemUi();
+  }
+
+  void _showTodayHistory() {
+    _todayHistoryRequest++;
+    _selectPage(1);
   }
 
   void _onDisplayDimmedChanged(bool dimmed) {
@@ -422,7 +573,11 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     WidgetsBinding.instance.removeObserver(this);
     _syncSystemUi(restore: true);
     _settings.removeListener(_syncSettings);
+    _settings.removeListener(_syncHomeWidget);
     _feed.removeListener(_syncWakelock);
+    _feed.removeListener(_syncHomeWidget);
+    _homeWidgets.setActionHandler(null);
+    if (widget.homeWidgetService == null) _homeWidgets.dispose();
     if (widget.feedProvider == null) _feed.dispose();
     if (widget.settingsProvider == null) _settings.dispose();
     if (widget.audioService == null) {
@@ -448,6 +603,7 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
     child: Selector<SettingsProvider, ThemeMode>(
       selector: (_, settings) => settings.themeMode,
       builder: (context, themeMode, _) => MaterialApp(
+        navigatorKey: _navigatorKey,
         title: AppStrings.appName,
         debugShowCheckedModeBanner: false,
         locale: const Locale('zh', 'CN'),
@@ -505,6 +661,7 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
                           child: _AppNavigation(
                             index: _index,
                             onSelect: _selectPage,
+                            onTodayHistory: _showTodayHistory,
                             rail: rail,
                           ),
                         ),
@@ -517,12 +674,15 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
                               index: _index,
                               children: [
                                 HomeScreen(
+                                  wakeRevision: _homeWakeRevision,
                                   isActive: _index == 0 && _foreground,
-                                  onHistoryRequested: () => _selectPage(1),
+                                  onHistoryRequested: _showTodayHistory,
                                   onDisplayDimmedChanged:
                                       _onDisplayDimmedChanged,
                                 ),
-                                const HistoryScreen(),
+                                HistoryScreen(
+                                  todayFilterRequest: _todayHistoryRequest,
+                                ),
                                 SettingsScreen(
                                   isActive: _index == 2 && _foreground,
                                 ),
@@ -547,10 +707,12 @@ class _AppNavigation extends StatelessWidget {
   const _AppNavigation({
     required this.index,
     required this.onSelect,
+    required this.onTodayHistory,
     required this.rail,
   });
   final int index;
   final ValueChanged<int> onSelect;
+  final VoidCallback onTodayHistory;
   final bool rail;
 
   @override
@@ -639,12 +801,20 @@ class _AppNavigation extends StatelessWidget {
               child:
                   Selector<
                     FeedProvider,
-                    ({DateTime day, DateTime? last, int count})
+                    ({
+                      DateTime day,
+                      DateTime? last,
+                      int count,
+                      bool available,
+                      bool initialized,
+                    })
                   >(
                     selector: (_, feed) => (
                       day: DateUtils.dateOnly(feed.referenceTime),
                       last: feed.lastFeedTime,
                       count: feed.todayRecords.length,
+                      available: feed.isAvailable,
+                      initialized: feed.isInitialized,
                     ),
                     builder: (context, data, _) => Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -671,7 +841,15 @@ class _AppNavigation extends StatelessWidget {
                         ],
                         SizedBox(height: compactRail ? 12 : 24),
                         navigation,
-                        if (compactRail) ...[
+                        if (!data.available)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: Text(
+                              data.initialized ? '记录暂不可用' : '正在读取记录…',
+                              style: AppTypography.supporting(context),
+                            ),
+                          )
+                        else if (compactRail) ...[
                           const SizedBox(height: 12),
                           Divider(color: p.border, height: 1),
                           const SizedBox(height: 12),
@@ -716,7 +894,7 @@ class _AppNavigation extends StatelessWidget {
                           Divider(color: p.border, height: 1),
                           const SizedBox(height: 13),
                           AppPressable(
-                            onPressed: () => onSelect(1),
+                            onPressed: onTodayHistory,
                             semanticLabel: '查看今日喂奶记录',
                             excludeSemantics: true,
                             child: Padding(
@@ -795,7 +973,7 @@ class _AppNavigation extends StatelessWidget {
         Expanded(
           child: AppPressable(
             semanticLabel: '查看今日喂奶记录',
-            onPressed: () => onSelect(1),
+            onPressed: onTodayHistory,
             child: metric('今天', '$count 次'),
           ),
         ),

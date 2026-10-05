@@ -9,7 +9,25 @@ import '../widgets/app_controls.dart';
 import '../widgets/app_page_header.dart';
 import '../widgets/app_surface.dart';
 
-Future<void> showPrivacyPolicy(BuildContext context) async {
+final _openPolicies = Expando<Future<void>>('Open privacy policy');
+
+Future<void> showPrivacyPolicy(BuildContext context) {
+  final navigator = Navigator.of(context);
+  final existing = _openPolicies[navigator];
+  if (existing != null) return existing;
+  final opening = _showPrivacyPolicy(context, navigator);
+  _openPolicies[navigator] = opening;
+  return opening.whenComplete(() {
+    if (identical(_openPolicies[navigator], opening)) {
+      _openPolicies[navigator] = null;
+    }
+  });
+}
+
+Future<void> _showPrivacyPolicy(
+  BuildContext context,
+  NavigatorState navigator,
+) async {
   if (PrivacyService.usesHostedPolicy) {
     try {
       await PrivacyService.openHostedPolicy();
@@ -24,17 +42,30 @@ Future<void> showPrivacyPolicy(BuildContext context) async {
     }
     return;
   }
-  await Navigator.of(context).push<void>(
-    MaterialPageRoute<void>(
-      settings: const RouteSettings(name: 'privacy-policy'),
-      builder: (_) => const PrivacyPolicyScreen(),
-    ),
+  final route = MaterialPageRoute<void>(
+    settings: const RouteSettings(name: 'privacy-policy'),
+    builder: (_) => const PrivacyPolicyScreen(),
   );
+  await navigator.push<void>(route);
+  await route.completed;
 }
 
 /// Bundled text stays available before consent and without a network connection.
-class PrivacyPolicyScreen extends StatelessWidget {
+class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
+
+  @override
+  State<PrivacyPolicyScreen> createState() => _PrivacyPolicyScreenState();
+}
+
+class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
+  bool _closing = false;
+
+  void _close() {
+    if (_closing || ModalRoute.of(context)?.isCurrent != true) return;
+    _closing = true;
+    Navigator.of(context).pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +88,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                           surface: false,
                           compact: true,
                           semanticLabel: '返回',
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: _close,
                           child: const Icon(CupertinoIcons.back),
                         ),
                         const SizedBox(width: 8),

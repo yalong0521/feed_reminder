@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 Future<void> _pumpSlider(
   WidgetTester tester, {
   required Future<void> Function() onRecord,
+  Future<void> Function()? onUndo,
   bool dark = false,
 }) async {
   final originalStrategy = FocusManager.instance.highlightStrategy;
@@ -25,7 +26,10 @@ Future<void> _pumpSlider(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(width: 360, child: FeedButton(onPressed: onRecord)),
+              SizedBox(
+                width: 360,
+                child: FeedButton(onPressed: onRecord, onUndo: onUndo),
+              ),
               AppButton(onPressed: () {}, child: const Text('另一个操作')),
             ],
           ),
@@ -108,6 +112,8 @@ void main() {
       final drag = await tester.startGesture(tester.getCenter(thumb));
       await drag.moveBy(const Offset(300, 0));
       await tester.pump();
+      expect(find.text('松开确认'), findsOneWidget);
+      expect(find.text('按回车确认'), findsNothing);
       await drag.cancel();
       await tester.pumpAndSettle();
       expect(_sliderFocusBorder(tester), isNull);
@@ -132,10 +138,16 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(recordings, 0);
-    for (var step = 0; step < 4; step++) {
+    for (var step = 0; step < 3; step++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     }
     await tester.pump();
+    expect(find.text('继续按右键'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(find.text('按回车确认'), findsOneWidget);
+    expect(find.text('松开确认'), findsNothing);
+    expect(recordings, 0);
     _expectKeyboardRing(tester);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
@@ -144,6 +156,56 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     expect(tester.takeException(), isNull);
   });
+
+  for (final dark in [false, true]) {
+    testWidgets(
+      '${dark ? 'dark' : 'light'} saved undo has contrasting keyboard focus',
+      (tester) async {
+        var recordings = 0;
+        var undos = 0;
+        await _pumpSlider(
+          tester,
+          dark: dark,
+          onRecord: () async => recordings++,
+          onUndo: () async => undos++,
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        for (var step = 0; step < 4; step++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(recordings, 1);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        final undo = find.byKey(const ValueKey('feed-slide-undo'));
+        final foreground = find.descendant(
+          of: undo,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is DecoratedBox &&
+                widget.position == DecorationPosition.foreground,
+          ),
+        );
+        final decoration =
+            tester.widget<DecoratedBox>(foreground).decoration as BoxDecoration;
+        final border = decoration.border as Border?;
+        final palette = dark ? AppPalette.dark : AppPalette.light;
+        expect(border, isNotNull);
+        expect(border!.top.color, palette.onPrimary);
+        expect(border.top.color, isNot(palette.primary));
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(undos, 1);
+        expect(recordings, 1);
+        expect(find.text('滑动记录喂奶'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'touch hides keyboard focus and later keyboard input restores it',

@@ -29,6 +29,18 @@ class _FailingStorage extends StorageService {
   }
 }
 
+class _RecoveringReadStorage extends StorageService {
+  bool failRead = true;
+  Completer<void>? readGate;
+
+  @override
+  Future<bool> getBurnInProtectionEnabled() async {
+    await readGate?.future;
+    if (failRead) throw StateError('Settings temporarily unavailable');
+    return super.getBurnInProtectionEnabled();
+  }
+}
+
 class _FailFirstThemeStorage extends StorageService {
   int attempts = 0;
 
@@ -147,6 +159,85 @@ void main() {
     expect(find.byType(AppMessageDialog), findsNothing);
   }
 
+  testWidgets(
+    'failed settings stay disabled until an explicit retry restores stored values',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.feedIntervalMinutes: 90,
+        StorageKeys.defaultMilkAmountMl: 150,
+        StorageKeys.soundEnabled: false,
+      });
+      final storage = _RecoveringReadStorage();
+      final settings = await showSettings(tester, storage: storage);
+      expect(find.text('设置暂不可用'), findsOneWidget);
+      expect(find.text('更改会自动保存'), findsNothing);
+      expect(
+        tester
+            .widget<AppButton>(
+              find.byKey(const ValueKey('custom-interval-button')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<CupertinoSwitch>(
+              find.byKey(const ValueKey('night-mode-switch')),
+            )
+            .onChanged,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<AppPressable>(
+              find.byKey(const ValueKey('theme-mode-light')),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      storage.failRead = false;
+      storage.readGate = Completer<void>();
+      await tester.tap(find.byKey(const ValueKey('retry-settings-load')));
+      await tester.pump();
+      expect(find.text('正在重试…'), findsOneWidget);
+      expect(
+        tester
+            .widget<AppButton>(
+              find.byKey(const ValueKey('retry-settings-load')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(settings.isAvailable, isFalse);
+      storage.readGate!.complete();
+      await tester.pumpAndSettle();
+      expect(settings.isAvailable, isTrue);
+      expect(settings.feedIntervalMinutes, 90);
+      expect(settings.defaultMilkAmountMl, 150);
+      expect(settings.soundEnabled, isFalse);
+      expect(find.byKey(const ValueKey('retry-settings-load')), findsNothing);
+      expect(find.text('更改会自动保存'), findsOneWidget);
+      expect(
+        tester
+            .widget<AppButton>(
+              find.byKey(const ValueKey('custom-interval-button')),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<CupertinoSwitch>(
+              find.byKey(const ValueKey('night-mode-switch')),
+            )
+            .onChanged,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   group('notification permission settings', () {
     const channel = MethodChannel('feed_reminder/notifications');
     const notificationChannel = MethodChannel(
@@ -177,33 +268,31 @@ void main() {
           .setMockMethodCallHandler(notificationChannel, null);
     });
 
-    testWidgets(
-      'opens settings once while both permission rows are busy',
-      (tester) async {
-        settingsGate = Completer<void>();
-        await showSettings(tester, notifications: NotificationService());
-        final notification = find.text('系统通知权限');
-        final exactAlarm = find.text('准时提醒权限');
-        await tester.ensureVisible(exactAlarm);
-        expect(find.text('前往系统通知设置'), findsOneWidget);
-        expect(find.text('前往系统授权'), findsOneWidget);
+    testWidgets('opens settings once while both permission rows are busy', (
+      tester,
+    ) async {
+      settingsGate = Completer<void>();
+      await showSettings(tester, notifications: NotificationService());
+      final notification = find.text('系统通知权限');
+      final exactAlarm = find.text('准时提醒权限');
+      await tester.ensureVisible(exactAlarm);
+      expect(find.text('前往系统通知设置'), findsOneWidget);
+      expect(find.text('前往系统授权'), findsOneWidget);
 
-        await tester.tap(notification);
-        await tester.pump();
-        await tester.tap(notification);
-        await tester.tap(exactAlarm);
-        await tester.pump();
-        expect(calls, ['openNotificationSettings']);
+      await tester.tap(notification);
+      await tester.pump();
+      await tester.tap(notification);
+      await tester.tap(exactAlarm);
+      await tester.pump();
+      expect(calls, ['openNotificationSettings']);
 
-        settingsGate.complete();
-        await tester.pumpAndSettle();
-        await tester.tap(notification);
-        await tester.pumpAndSettle();
-        expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant.only(TargetPlatform.android),
-    );
+      settingsGate.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(notification);
+      await tester.pumpAndSettle();
+      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets(
       'permission actions ignore a second activation before rebuild',
@@ -235,31 +324,29 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.android),
     );
 
-    testWidgets(
-      'failed settings navigation shows a notice and allows retry',
-      (tester) async {
-        settingsGate = Completer<void>();
-        await showSettings(tester, notifications: NotificationService());
-        final notification = find.text('系统通知权限');
-        await tester.ensureVisible(notification);
-        await tester.tap(notification);
-        await tester.pump();
-        settingsGate.completeError(
-          PlatformException(code: 'settings_unavailable'),
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('无法打开权限设置，请在系统设置中检查应用权限。'), findsOneWidget);
-        await closeErrorDialog(tester);
+    testWidgets('failed settings navigation shows a notice and allows retry', (
+      tester,
+    ) async {
+      settingsGate = Completer<void>();
+      await showSettings(tester, notifications: NotificationService());
+      final notification = find.text('系统通知权限');
+      await tester.ensureVisible(notification);
+      await tester.tap(notification);
+      await tester.pump();
+      settingsGate.completeError(
+        PlatformException(code: 'settings_unavailable'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('无法打开权限设置，请在系统设置中检查应用权限。'), findsOneWidget);
+      await closeErrorDialog(tester);
 
-        settingsGate = Completer<void>()..complete();
-        await tester.tap(notification);
-        await tester.pumpAndSettle();
-        expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
-        expect(find.byType(AppMessageDialog), findsNothing);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant.only(TargetPlatform.android),
-    );
+      settingsGate = Completer<void>()..complete();
+      await tester.tap(notification);
+      await tester.pumpAndSettle();
+      expect(calls, ['openNotificationSettings', 'openNotificationSettings']);
+      expect(find.byType(AppMessageDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   });
 
   testWidgets('settings fit a 320 pixel screen at 200 percent text scale', (
@@ -290,6 +377,52 @@ void main() {
     expect(find.text('自定义喂奶间隔'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final editor in [
+    (
+      entry: 'custom-interval-button',
+      surface: 'custom-interval-editor-surface',
+    ),
+    (
+      entry: 'default-milk-amount',
+      surface: 'default-milk-amount-editor-surface',
+    ),
+  ]) {
+    testWidgets(
+      '${editor.entry} keeps its rounded shell fixed while scrolling',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await showSettings(tester, textScale: 1.8);
+        final entry = find.byKey(ValueKey(editor.entry));
+        await tester.ensureVisible(entry);
+        await tester.pumpAndSettle();
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+
+        final surface = find.byKey(ValueKey(editor.surface));
+        final before = tester.getRect(surface);
+        final scroll = tester
+            .state<ScrollableState>(
+              find
+                  .descendant(of: surface, matching: find.byType(Scrollable))
+                  .first,
+            )
+            .position;
+        expect(scroll.maxScrollExtent, greaterThan(0));
+        scroll.jumpTo(scroll.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(tester.getRect(surface), before);
+        expect(before.top, greaterThanOrEqualTo(20));
+        expect(before.bottom, lessThanOrEqualTo(620));
+        expect(
+          find.widgetWithText(AppButton, '保存').hitTestable(),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('interval presets persist the selected value', (tester) async {
     final settings = await showSettings(tester);
@@ -340,36 +473,55 @@ void main() {
   testWidgets(
     'custom interval rejects out of range input then persists minutes',
     (tester) async {
-      final settings = await showSettings(tester);
-      await tester.tap(find.text('自定义'));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-interval-field')),
-        '0',
-      );
-      await tester.tap(find.text('保存'));
-      await tester.pumpAndSettle();
-      expect(find.text('请输入 1–1440 之间的整数'), findsOneWidget);
-      expect(settings.feedIntervalMinutes, 180);
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-interval-field')),
-        '1441',
-      );
-      await tester.tap(find.text('保存'));
-      await tester.pumpAndSettle();
-      expect(find.text('请输入 1–1440 之间的整数'), findsOneWidget);
-      await tester.enterText(
-        find.byKey(const ValueKey('custom-interval-field')),
-        '75',
-      );
-      await tester.tap(find.text('保存'));
-      await tester.pumpAndSettle();
-      expect(find.text('自定义喂奶间隔'), findsNothing);
-      expect(find.text('1 小时 15 分钟'), findsOneWidget);
-      expect(settings.feedIntervalMinutes, 75);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt(StorageKeys.feedIntervalMinutes), 75);
-      expect(tester.takeException(), isNull);
+      final semantics = tester.ensureSemantics();
+      try {
+        final settings = await showSettings(tester);
+        await tester.tap(find.text('自定义'));
+        await tester.pumpAndSettle();
+        final titleSemantics = tester
+            .getSemantics(find.text('自定义喂奶间隔'))
+            .getSemanticsData();
+        expect(titleSemantics.flagsCollection.isHeader, isTrue);
+        expect(titleSemantics.flagsCollection.namesRoute, isTrue);
+        expect(find.bySemanticsLabel(RegExp('间隔时长，分钟')), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const ValueKey('custom-interval-field')),
+          '0',
+        );
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        expect(find.text('请输入 1–1440 之间的整数'), findsOneWidget);
+        expect(
+          tester
+              .getSemantics(find.text('请输入 1–1440 之间的整数'))
+              .getSemanticsData()
+              .flagsCollection
+              .isLiveRegion,
+          isTrue,
+        );
+        expect(settings.feedIntervalMinutes, 180);
+        await tester.enterText(
+          find.byKey(const ValueKey('custom-interval-field')),
+          '1441',
+        );
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        expect(find.text('请输入 1–1440 之间的整数'), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const ValueKey('custom-interval-field')),
+          '75',
+        );
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        expect(find.text('自定义喂奶间隔'), findsNothing);
+        expect(find.text('1 小时 15 分钟'), findsOneWidget);
+        expect(settings.feedIntervalMinutes, 75);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt(StorageKeys.feedIntervalMinutes), 75);
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
     },
   );
 

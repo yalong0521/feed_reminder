@@ -1,4 +1,5 @@
 import '../models/feed_record.dart';
+import '../models/backup_document.dart';
 import '../services/storage_service.dart';
 
 /// Owns the ordered history. The history is authoritative; lastFeedTime remains
@@ -60,6 +61,17 @@ class FeedRepository {
 
   Future<void> remove(FeedRecord record) =>
       _save(_records.where((item) => item.id != record.id).toList());
+
+  /// Merge only missing identities; local edits always win over old backups.
+  Future<int> merge(List<FeedRecord> incoming) async {
+    final merged = BackupDocument.mergeForRestore(
+      localRecords: _records,
+      incoming: incoming,
+    );
+    final added = merged.length - _records.length;
+    if (added > 0) await _save(merged);
+    return added;
+  }
 
   Future<void> _save(List<FeedRecord> records) async {
     final normalized = normalize(records);

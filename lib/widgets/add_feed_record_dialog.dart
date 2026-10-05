@@ -9,6 +9,7 @@ import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
 import 'app_controls.dart';
+import 'app_message_dialog.dart';
 import 'app_surface.dart';
 import 'milk_amount_field.dart';
 
@@ -27,6 +28,7 @@ class AddFeedRecordDialog extends StatefulWidget {
 }
 
 class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
+  final _milkFieldKey = GlobalKey();
   late DateTime _selectedDate;
   late final TextEditingController _milkController;
   bool _saving = false;
@@ -109,6 +111,16 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
     final milkError = MilkAmountField.validate(_milkController.text);
     if (milkError != null) {
       setState(() => _milkError = milkError);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _closing || _milkError == null) return;
+        final fieldContext = _milkFieldKey.currentContext;
+        if (fieldContext == null) return;
+        Scrollable.ensureVisible(
+          fieldContext,
+          alignment: 1,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+      });
       return;
     }
     if (!_keepsRecordedTime && _selectedDate.isAfter(provider.referenceTime)) {
@@ -204,6 +216,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
       ),
     );
     final milkField = MilkAmountField(
+      key: _milkFieldKey,
       controller: _milkController,
       enabled: !disabled,
       errorText: _milkError,
@@ -216,6 +229,45 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
         compact &&
         size.width >= 700 &&
         MediaQuery.textScalerOf(context).scale(16) <= 22;
+    final actions = LayoutBuilder(
+      builder: (context, constraints) {
+        final cancel = AppButton(
+          key: const ValueKey('add-feed-cancel'),
+          onPressed: _saving ? null : () => _close(false),
+          child: const Text(AppStrings.cancel),
+        );
+        final save = Semantics(
+          liveRegion: true,
+          child: AppButton(
+            key: const ValueKey('add-feed-save'),
+            filled: true,
+            semanticLabel: _saving
+                ? widget.record == null
+                      ? '正在保存记录'
+                      : '正在保存修改'
+                : null,
+            onPressed: disabled || isFuture ? null : _save,
+            child: _saving
+                ? CupertinoActivityIndicator(color: colors.onPrimary)
+                : Text(widget.record == null ? '保存记录' : '保存修改'),
+          ),
+        );
+        if (constraints.maxWidth < 300 &&
+            MediaQuery.textScalerOf(context).scale(16) > 20) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [save, const SizedBox(height: 8), cancel],
+          );
+        }
+        return Row(
+          children: [
+            cancel,
+            const SizedBox(width: 12),
+            Expanded(child: save),
+          ],
+        );
+      },
+    );
 
     return PopScope(
       canPop: !_saving,
@@ -239,11 +291,15 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Text(
-                          widget.record == null
-                              ? AppStrings.addFeedTitle
-                              : '修改喂奶记录',
-                          style: AppTypography.dialogTitle(context),
+                        child: Semantics(
+                          header: true,
+                          namesRoute: true,
+                          child: Text(
+                            widget.record == null
+                                ? AppStrings.addFeedTitle
+                                : '修改喂奶记录',
+                            style: AppTypography.dialogTitle(context),
+                          ),
                         ),
                       ),
                     ],
@@ -260,7 +316,18 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: dateTimeFields),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              dateTimeFields,
+                              const SizedBox(height: 12),
+                              // Short landscape uses the space beside the ruler
+                              // so its height cannot push Save below the screen.
+                              actions,
+                            ],
+                          ),
+                        ),
                         const SizedBox(width: 24),
                         Expanded(flex: 2, child: milkField),
                       ],
@@ -317,40 +384,10 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
                         ),
                       ],
                     ),
-                  SizedBox(height: compact ? 12 : 24),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final cancel = AppButton(
-                        key: const ValueKey('add-feed-cancel'),
-                        onPressed: _saving ? null : () => _close(false),
-                        child: const Text(AppStrings.cancel),
-                      );
-                      final save = AppButton(
-                        key: const ValueKey('add-feed-save'),
-                        filled: true,
-                        onPressed: disabled || isFuture ? null : _save,
-                        child: _saving
-                            ? CupertinoActivityIndicator(
-                                color: colors.onPrimary,
-                              )
-                            : Text(widget.record == null ? '保存记录' : '保存修改'),
-                      );
-                      if (constraints.maxWidth < 300 &&
-                          MediaQuery.textScalerOf(context).scale(16) > 20) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [save, const SizedBox(height: 8), cancel],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          cancel,
-                          const SizedBox(width: 12),
-                          Expanded(child: save),
-                        ],
-                      );
-                    },
-                  ),
+                  if (!sideBySide) ...[
+                    SizedBox(height: compact ? 12 : 24),
+                    actions,
+                  ],
                 ],
               ),
             ),
@@ -485,30 +522,17 @@ Future<bool?> _openFeedRecordDialog(
   }
   if (!navigatorContext.mounted) return null;
   final defaultAmount = settings?.defaultMilkAmountMl ?? 0;
-  return showGeneralDialog<bool>(
-    context: navigatorContext,
-    barrierDismissible: true,
-    barrierLabel: record == null ? '关闭补记' : '关闭修改',
-    barrierColor: Colors.black.withValues(alpha: .3),
-    transitionDuration: Duration(
-      milliseconds: MediaQuery.disableAnimationsOf(navigatorContext) ? 0 : 220,
-    ),
-    transitionBuilder: (context, animation, secondary, child) => FadeTransition(
-      opacity: animation,
-      child: ScaleTransition(
-        scale: Tween<double>(begin: .96, end: 1).animate(
-          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+  return Navigator.of(navigatorContext, rootNavigator: true).push<bool>(
+    createAppMessageDialogRoute<bool>(
+      navigatorContext,
+      barrierLabel: record == null ? '关闭补记' : '关闭修改',
+      builder: (dialogContext) => ChangeNotifierProvider.value(
+        value: provider,
+        child: AddFeedRecordDialog(
+          record: record,
+          defaultMilkAmountMl: defaultAmount,
         ),
-        child: child,
       ),
     ),
-    pageBuilder: (dialogContext, animation, secondary) =>
-        ChangeNotifierProvider.value(
-          value: provider,
-          child: AddFeedRecordDialog(
-            record: record,
-            defaultMilkAmountMl: defaultAmount,
-          ),
-        ),
   );
 }

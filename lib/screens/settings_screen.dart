@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/feed_provider.dart';
@@ -20,6 +19,7 @@ import '../widgets/app_page_header.dart';
 import '../widgets/app_surface.dart';
 import '../widgets/milk_amount_field.dart';
 import 'privacy_policy_screen.dart';
+import 'data_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -47,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _permissionBusy = false;
   bool _saving = false;
   bool _editing = false;
+  bool _openingData = false;
   int _previewGeneration = 0;
 
   @override
@@ -96,6 +97,18 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   void _showError(String message) {
     if (mounted && widget.isActive) showAppNotice(context, message);
+  }
+
+  Future<void> _openDataManagement() async {
+    if (_openingData) return;
+    _openingData = true;
+    try {
+      await Navigator.of(context).push<void>(
+        CupertinoPageRoute(builder: (_) => const DataManagementScreen()),
+      );
+    } finally {
+      _openingData = false;
+    }
   }
 
   Future<void> _stopPreview() async {
@@ -153,13 +166,19 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (_editing || _saving || settings.isSaving) return;
     _editing = true;
     try {
-      final minutes = await showCupertinoModalPopup<int>(
-        context: context,
-        builder: (context) => DefaultTextStyle(
-          style: AppTypography.body(context),
-          child: _IntervalEditor(initialValue: settings.feedIntervalMinutes),
-        ),
-      );
+      final minutes = await Navigator.of(context, rootNavigator: true)
+          .push<int>(
+            createAppMessageDialogRoute<int>(
+              context,
+              barrierLabel: '关闭喂奶间隔设置',
+              builder: (context) => DefaultTextStyle(
+                style: AppTypography.body(context),
+                child: _IntervalEditor(
+                  initialValue: settings.feedIntervalMinutes,
+                ),
+              ),
+            ),
+          );
       if (minutes != null && mounted) {
         await _save(() => settings.setFeedInterval(minutes));
       }
@@ -174,11 +193,16 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
     _editing = true;
     try {
-      final amount = await showCupertinoModalPopup<int>(
-        context: context,
-        builder: (context) => DefaultTextStyle(
-          style: AppTypography.body(context),
-          child: _MilkAmountEditor(initialValue: settings.defaultMilkAmountMl),
+      final amount = await Navigator.of(context, rootNavigator: true).push<int>(
+        createAppMessageDialogRoute<int>(
+          context,
+          barrierLabel: '关闭默认奶量设置',
+          builder: (context) => DefaultTextStyle(
+            style: AppTypography.body(context),
+            child: _MilkAmountEditor(
+              initialValue: settings.defaultMilkAmountMl,
+            ),
+          ),
         ),
       );
       if (amount != null && mounted) {
@@ -278,7 +302,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     final settings = context.watch<SettingsProvider>();
     final notifications = context.read<NotificationService>();
     final colors = AppPalette.of(context);
-    final busy = _saving || settings.isSaving;
+    final saving = _saving || settings.isSaving;
+    final busy = saving || settings.isLoading || !settings.isAvailable;
     final compact = _compactSettingsLayout(context);
     return SafeArea(
       bottom: false,
@@ -304,15 +329,32 @@ class _SettingsScreenState extends State<SettingsScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _SettingsHeader(compact: compact, saving: busy),
+                    _SettingsHeader(
+                      compact: compact,
+                      saving: saving,
+                      loading: settings.isLoading,
+                      available: settings.isAvailable,
+                    ),
                     if (settings.error != null) ...[
                       const SizedBox(height: 12),
                       Text(
-                        '设置未能完整读取或保存，请重试；若仍失败，请重新打开应用。',
+                        settings.isAvailable
+                            ? '设置未能保存，已恢复为之前的值，请重试。'
+                            : '设置读取失败，原有设置已保留。请重试读取后再修改。',
                         style: AppTypography.supporting(
                           context,
                         ).copyWith(color: colors.alert),
                       ),
+                      if (!settings.isAvailable) ...[
+                        const SizedBox(height: 12),
+                        AppButton(
+                          key: const ValueKey('retry-settings-load'),
+                          onPressed: settings.isLoading
+                              ? null
+                              : settings.retryLoading,
+                          child: Text(settings.isLoading ? '正在重试…' : '重试读取设置'),
+                        ),
+                      ],
                     ],
                     SizedBox(height: AppPageLayout.headerGap(compact)),
                     _SettingsGrid(
@@ -441,7 +483,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                             AppButton(
                               key: const ValueKey('sound-preview-button'),
                               compact: true,
-                              onPressed: _audioBusy || !settings.soundEnabled
+                              onPressed:
+                                  busy || _audioBusy || !settings.soundEnabled
                                   ? null
                                   : _togglePreview,
                               child: _ActionLabel(
@@ -561,6 +604,20 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                         ],
                         _SettingsGroup(
+                          icon: CupertinoIcons.folder,
+                          title: '数据管理',
+                          description: '备份记录，换机恢复，或导出表格。',
+                          children: [
+                            _PermissionRow(
+                              key: const ValueKey('open-data-management'),
+                              label: '管理喂奶记录',
+                              subtitle: '本地备份、合并恢复与 CSV 导出',
+                              icon: CupertinoIcons.folder,
+                              onPressed: _openDataManagement,
+                            ),
+                          ],
+                        ),
+                        _SettingsGroup(
                           icon: CupertinoIcons.doc_text,
                           title: '隐私政策',
                           description: '了解记录如何保存，以及如何管理和删除数据。',
@@ -593,9 +650,16 @@ bool _compactSettingsLayout(BuildContext context) {
 }
 
 class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader({required this.compact, required this.saving});
+  const _SettingsHeader({
+    required this.compact,
+    required this.saving,
+    required this.loading,
+    required this.available,
+  });
   final bool compact;
   final bool saving;
+  final bool loading;
+  final bool available;
 
   @override
   Widget build(BuildContext context) {
@@ -603,14 +667,26 @@ class _SettingsHeader extends StatelessWidget {
     final status = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (saving)
+        if (saving || loading)
           CupertinoActivityIndicator(radius: 7, color: colors.primary)
         else
-          Icon(CupertinoIcons.checkmark, size: 13, color: colors.textSecondary),
+          Icon(
+            available
+                ? CupertinoIcons.checkmark
+                : CupertinoIcons.exclamationmark_circle,
+            size: 13,
+            color: available ? colors.textSecondary : colors.alert,
+          ),
         const SizedBox(width: 7),
         Flexible(
           child: Text(
-            saving ? '正在保存…' : '更改会自动保存',
+            loading
+                ? '正在读取设置…'
+                : !available
+                ? '设置暂不可用'
+                : saving
+                ? '正在保存…'
+                : '更改会自动保存',
             style: AppTypography.supporting(context),
           ),
         ),
@@ -997,6 +1073,7 @@ class _ActionLabel extends StatelessWidget {
 
 class _PermissionRow extends StatelessWidget {
   const _PermissionRow({
+    super.key,
     required this.label,
     this.subtitle = '前往系统授权',
     required this.icon,
@@ -1012,7 +1089,7 @@ class _PermissionRow extends StatelessWidget {
     final colors = AppPalette.of(context);
     return AppPressable(
       onPressed: onPressed,
-      semanticLabel: label,
+      semanticLabel: '$label，$subtitle',
       excludeSemantics: true,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1052,6 +1129,7 @@ class _MilkAmountEditor extends StatefulWidget {
 }
 
 class _MilkAmountEditorState extends State<_MilkAmountEditor> {
+  final _milkFieldKey = GlobalKey();
   late final TextEditingController _controller;
   String? _error;
   bool _closing = false;
@@ -1079,6 +1157,16 @@ class _MilkAmountEditorState extends State<_MilkAmountEditor> {
     final error = MilkAmountField.validate(_controller.text);
     if (error != null) {
       setState(() => _error = error);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _closing || _error == null) return;
+        final fieldContext = _milkFieldKey.currentContext;
+        if (fieldContext == null) return;
+        Scrollable.ensureVisible(
+          fieldContext,
+          alignment: 1,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+      });
       return;
     }
     _close(int.parse(_controller.text));
@@ -1098,15 +1186,23 @@ class _MilkAmountEditorState extends State<_MilkAmountEditor> {
           alignment: Alignment.center,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
-            child: SingleChildScrollView(
-              child: AppSurface(
-                radius: 24,
+            child: AppSurface(
+              key: const ValueKey('default-milk-amount-editor-surface'),
+              radius: 24,
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('设置默认奶量', style: AppTypography.dialogTitle(context)),
+                    Semantics(
+                      header: true,
+                      namesRoute: true,
+                      child: Text(
+                        '设置默认奶量',
+                        style: AppTypography.dialogTitle(context),
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       '新记录会自动带入这个奶量，历史记录保持原值。',
@@ -1114,6 +1210,7 @@ class _MilkAmountEditorState extends State<_MilkAmountEditor> {
                     ),
                     const SizedBox(height: 24),
                     MilkAmountField(
+                      key: _milkFieldKey,
                       controller: _controller,
                       label: '每次喂养',
                       errorText: _error,
@@ -1123,19 +1220,10 @@ class _MilkAmountEditorState extends State<_MilkAmountEditor> {
                       },
                     ),
                     const SizedBox(height: 24),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: [
-                        AppButton(onPressed: _close, child: const Text('取消')),
-                        AppButton(
-                          key: const ValueKey('save-default-milk-amount'),
-                          filled: true,
-                          onPressed: _submit,
-                          child: const Text('保存'),
-                        ),
-                      ],
+                    _EditorActions(
+                      saveKey: const ValueKey('save-default-milk-amount'),
+                      onCancel: _close,
+                      onSave: _submit,
                     ),
                   ],
                 ),
@@ -1176,7 +1264,10 @@ class _IntervalEditorState extends State<_IntervalEditor> {
   void _submit() {
     if (_closing) return;
     final value = int.tryParse(_controller.text);
-    if (value == null || value < 1 || value > 1440) {
+    if (!RegExp(r'^[0-9]+$').hasMatch(_controller.text) ||
+        value == null ||
+        value < 1 ||
+        value > 1440) {
       setState(() => _error = '请输入 1–1440 之间的整数');
       return;
     }
@@ -1204,80 +1295,126 @@ class _IntervalEditorState extends State<_IntervalEditor> {
           alignment: Alignment.center,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 440),
-            child: SingleChildScrollView(
-              child: AppSurface(
-                radius: 24,
+            child: AppSurface(
+              key: const ValueKey('custom-interval-editor-surface'),
+              radius: 24,
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('自定义喂奶间隔', style: AppTypography.dialogTitle(context)),
+                    Semantics(
+                      header: true,
+                      namesRoute: true,
+                      child: Text(
+                        '自定义喂奶间隔',
+                        style: AppTypography.dialogTitle(context),
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       '选择适合宝宝的节奏。保存后，当前计时会按新间隔重新计算。',
                       style: _descriptionStyle(context),
                     ),
                     const SizedBox(height: 28),
-                    Text('间隔时长', style: _hintStyle(context)),
-                    const SizedBox(height: 8),
-                    CupertinoTextField(
-                      key: const ValueKey('custom-interval-field'),
-                      controller: _controller,
-                      autofocus: true,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.w400,
-                        color: colors.primary,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                      cursorColor: colors.primary,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: colors.background,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: _error == null ? colors.border : colors.alert,
-                          width: 1,
-                        ),
-                      ),
-                      suffix: Padding(
-                        padding: const EdgeInsets.only(right: 16),
-                        child: Text('分钟', style: _descriptionStyle(context)),
-                      ),
-                      onSubmitted: (_) => _submit(),
-                      onChanged: (_) {
-                        if (_error != null) setState(() => _error = null);
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final inputStyle = CupertinoTheme.of(context)
+                            .textTheme
+                            .textStyle
+                            .merge(
+                              TextStyle(
+                                fontSize: 40,
+                                fontWeight: FontWeight.w400,
+                                color: colors.primary,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            );
+                        final unitStyle = DefaultTextStyle.of(
+                          context,
+                        ).style.merge(_descriptionStyle(context));
+                        final painter = TextPainter(
+                          text: TextSpan(
+                            children: [
+                              TextSpan(text: '1440', style: inputStyle),
+                              TextSpan(text: '分钟', style: unitStyle),
+                            ],
+                          ),
+                          textDirection: Directionality.of(context),
+                          textScaler: MediaQuery.textScalerOf(context),
+                          locale: Localizations.maybeLocaleOf(context),
+                        )..layout();
+                        final inlineUnit =
+                            constraints.maxWidth >= painter.width + 32 + 16 + 6;
+                        painter.dispose();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              inlineUnit ? '间隔时长' : '间隔时长（分钟）',
+                              style: _hintStyle(context),
+                            ),
+                            const SizedBox(height: 8),
+                            Semantics(
+                              label: '间隔时长，分钟',
+                              child: CupertinoTextField(
+                                key: const ValueKey('custom-interval-field'),
+                                controller: _controller,
+                                autofocus: true,
+                                keyboardType: TextInputType.number,
+                                textInputAction: TextInputAction.done,
+                                style: inputStyle,
+                                cursorColor: colors.primary,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: colors.background,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: _error == null
+                                        ? colors.border
+                                        : colors.alert,
+                                    width: 1,
+                                  ),
+                                ),
+                                suffix: inlineUnit
+                                    ? Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: 16,
+                                        ),
+                                        child: Text('分钟', style: unitStyle),
+                                      )
+                                    : null,
+                                onSubmitted: (_) => _submit(),
+                                onChanged: (_) {
+                                  if (_error != null) {
+                                    setState(() => _error = null);
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        );
                       },
                     ),
                     const SizedBox(height: 10),
                     Text('可设置 1–1440 分钟', style: _hintStyle(context)),
                     if (_error != null) ...[
                       const SizedBox(height: 10),
-                      Text(
-                        _error!,
-                        style: AppTypography.supporting(
-                          context,
-                        ).copyWith(color: colors.alert),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          _error!,
+                          style: AppTypography.supporting(
+                            context,
+                          ).copyWith(color: colors.alert),
+                        ),
                       ),
                     ],
                     const SizedBox(height: 24),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: [
-                        AppButton(onPressed: _close, child: const Text('取消')),
-                        AppButton(
-                          filled: true,
-                          onPressed: _submit,
-                          child: const Text('保存'),
-                        ),
-                      ],
-                    ),
+                    _EditorActions(onCancel: _close, onSave: _submit),
                   ],
                 ),
               ),
@@ -1287,4 +1424,43 @@ class _IntervalEditorState extends State<_IntervalEditor> {
       ),
     );
   }
+}
+
+class _EditorActions extends StatelessWidget {
+  const _EditorActions({
+    required this.onCancel,
+    required this.onSave,
+    this.saveKey,
+  });
+
+  final VoidCallback onCancel;
+  final VoidCallback onSave;
+  final Key? saveKey;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final cancel = AppButton(onPressed: onCancel, child: const Text('取消'));
+      final save = AppButton(
+        key: saveKey,
+        filled: true,
+        onPressed: onSave,
+        child: const Text('保存'),
+      );
+      if (constraints.maxWidth < 300 &&
+          MediaQuery.textScalerOf(context).scale(16) > 20) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [save, const SizedBox(height: 8), cancel],
+        );
+      }
+      return Row(
+        children: [
+          cancel,
+          const SizedBox(width: 12),
+          Expanded(child: save),
+        ],
+      );
+    },
+  );
 }

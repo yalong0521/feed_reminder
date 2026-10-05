@@ -3,6 +3,119 @@ import 'package:feed_reminder/models/milk_statistics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'custom dates include whole end day and average only measured meals',
+    () {
+      final statistics = MilkStatistics.aggregate(
+        [
+          FeedRecord(time: DateTime(2024, 2, 27, 23, 59), milkAmountMl: 900),
+          FeedRecord(time: DateTime(2024, 2, 28), milkAmountMl: 100),
+          FeedRecord(time: DateTime(2024, 2, 28, 1)),
+          FeedRecord(time: DateTime(2024, 2, 29, 23, 59), milkAmountMl: 200),
+          FeedRecord(time: DateTime(2024, 3, 1), milkAmountMl: 900),
+        ],
+        now: DateTime(2024, 3, 2),
+        startDate: DateTime(2024, 2, 28, 12),
+        endDate: DateTime(2024, 2, 29, 12),
+      );
+      expect(statistics.days, hasLength(2));
+      expect(statistics.feedCount, 3);
+      expect(statistics.totalMl, 300);
+      expect(statistics.dailyAverageMl, 150);
+      expect(statistics.averageMealMl, 150);
+      expect(
+        statistics.averageInterval,
+        const Duration(hours: 23, minutes: 59, seconds: 30),
+      );
+    },
+  );
+
+  test(
+    'interval uses sorted in-range instants, zeros and no incoming edge',
+    () {
+      final now = DateTime(2026, 10, 3, 12);
+      final statistics = MilkStatistics.aggregate(
+        [
+          FeedRecord(time: DateTime(2026, 10, 3, 11), milkAmountMl: 160),
+          FeedRecord(time: DateTime(2026, 10, 2, 23, 59)),
+          FeedRecord(time: DateTime(2026, 10, 3, 9), milkAmountMl: 80),
+          FeedRecord(time: DateTime(2026, 10, 3, 9)),
+          FeedRecord(
+            time: now.add(const Duration(seconds: 1)),
+            milkAmountMl: 900,
+          ),
+        ],
+        now: now,
+        startDate: now.toUtc(),
+        endDate: now.toUtc(),
+      );
+      expect(statistics.feedCount, 3);
+      expect(statistics.averageMealMl, 120);
+      expect(statistics.averageInterval, const Duration(hours: 1));
+    },
+  );
+
+  test('missing averages and genuine simultaneous zero intervals differ', () {
+    final now = DateTime(2026, 10, 3);
+    MilkStatistics calculate(List<FeedRecord> records) =>
+        MilkStatistics.aggregate(records, now: now, dayCount: 7);
+    expect(calculate([]).averageMealMl, isNull);
+    expect(calculate([]).averageInterval, isNull);
+    expect(calculate([FeedRecord(time: now)]).averageInterval, isNull);
+    final simultaneous = calculate([
+      FeedRecord(time: now),
+      FeedRecord(time: now),
+    ]);
+    expect(simultaneous.averageMealMl, isNull);
+    expect(simultaneous.averageInterval, Duration.zero);
+  });
+
+  test(
+    'custom calendar range accepts 366 days and rejects invalid windows',
+    () {
+      final now = DateTime(2024, 12, 31, 12);
+      expect(
+        MilkStatistics.aggregate(
+          [],
+          now: now,
+          startDate: DateTime(2024),
+          endDate: now,
+        ).days,
+        hasLength(366),
+      );
+      for (final range in [
+        (start: DateTime(2023, 12, 31), end: now),
+        (start: now, end: DateTime(2024, 12, 30)),
+        (start: now, end: DateTime(2025)),
+      ]) {
+        expect(
+          () => MilkStatistics.aggregate(
+            [],
+            now: now,
+            startDate: range.start,
+            endDate: range.end,
+          ),
+          throwsArgumentError,
+        );
+      }
+      expect(() => MilkStatistics.aggregate([], now: now), throwsArgumentError);
+      expect(
+        () => MilkStatistics.aggregate([], now: now, startDate: now),
+        throwsArgumentError,
+      );
+      expect(
+        () => MilkStatistics.aggregate(
+          [],
+          now: now,
+          dayCount: 7,
+          startDate: now,
+          endDate: now,
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
+
   test('calendar window includes boundary, zero days and unknown feeds', () {
     final now = DateTime(2026, 10, 3, 12);
     final statistics = MilkStatistics.aggregate(

@@ -1,5 +1,10 @@
 {
   "color": [
+    { "name": "widget_background", "value": "#2C2622" },
+    { "name": "widget_primary", "value": "#EDA987" },
+    { "name": "widget_on_primary", "value": "#382219" },
+    { "name": "widget_text", "value": "#F4EADC" },
+    { "name": "widget_secondary", "value": "#C5B3A2" },
     {
       "name": "start_window_background",
       "value": "#221E1B"

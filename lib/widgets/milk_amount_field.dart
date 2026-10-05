@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import 'app_controls.dart';
+import 'milk_amount_ruler.dart';
 
 /// Shared input for a meal's milk amount and the default for future meals.
 class MilkAmountField extends StatelessWidget {
@@ -45,6 +46,33 @@ class MilkAmountField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppPalette.of(context);
+    final inputStyle = CupertinoTheme.of(context).textTheme.textStyle.merge(
+      TextStyle(
+        fontSize: 32,
+        fontWeight: FontWeight.w400,
+        color: colors.primary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+    final unitStyle = DefaultTextStyle.of(
+      context,
+    ).style.merge(AppTypography.supporting(context));
+    double textWidth(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    // Reserve all four legal digits, field padding and the caret before
+    // deciding whether the two step buttons can share the input's row.
+    final numberWidth = textWidth('2000', inputStyle) + 24 + 6;
+    final unitWidth = textWidth('mL', unitStyle) + 14;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -57,9 +85,14 @@ class MilkAmountField extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    AppButton(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final inline =
+                        constraints.maxWidth >=
+                        numberWidth + unitWidth + 44 * 2 + 10 * 2;
+                    final inlineUnit =
+                        constraints.maxWidth >= numberWidth + unitWidth;
+                    final decrease = AppButton(
                       key: const ValueKey('milk-amount-decrease'),
                       compact: true,
                       padding: const EdgeInsets.all(10),
@@ -68,52 +101,8 @@ class MilkAmountField extends StatelessWidget {
                           ? () => _setAmount((amount - 10).clamp(0, 2000))
                           : null,
                       child: const Icon(CupertinoIcons.minus, size: 18),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Semantics(
-                        label: '$label，毫升',
-                        child: CupertinoTextField(
-                          key: const ValueKey('milk-amount-input'),
-                          controller: controller,
-                          enabled: enabled,
-                          keyboardType: TextInputType.number,
-                          textInputAction: TextInputAction.done,
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w400,
-                            color: colors.primary,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                          textAlign: TextAlign.center,
-                          cursorColor: colors.primary,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colors.background,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: errorText == null
-                                  ? colors.border
-                                  : colors.alert,
-                            ),
-                          ),
-                          suffix: Padding(
-                            padding: const EdgeInsets.only(right: 14),
-                            child: Text(
-                              'mL',
-                              style: AppTypography.supporting(context),
-                            ),
-                          ),
-                          onChanged: (_) => onChanged?.call(),
-                          onSubmitted: (_) => onSubmitted?.call(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    AppButton(
+                    );
+                    final increase = AppButton(
                       key: const ValueKey('milk-amount-increase'),
                       compact: true,
                       padding: const EdgeInsets.all(10),
@@ -122,49 +111,80 @@ class MilkAmountField extends StatelessWidget {
                           ? () => _setAmount((amount + 10).clamp(0, 2000))
                           : null,
                       child: const Icon(CupertinoIcons.plus, size: 18),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final preset in const [60, 90, 120, 150, 180])
-                      AppPressable(
-                        key: ValueKey('milk-amount-preset-$preset'),
-                        onPressed: enabled ? () => _setAmount(preset) : null,
-                        selected: amount == preset,
-                        semanticLabel: '$preset 毫升',
-                        excludeSemantics: true,
-                        child: Container(
-                          constraints: const BoxConstraints(minHeight: 44),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 13,
-                            vertical: 11,
-                          ),
-                          decoration: BoxDecoration(
-                            color: amount == preset
-                                ? colors.primary.withValues(alpha: .08)
-                                : colors.background,
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: amount == preset
-                                  ? colors.primary
-                                  : colors.border,
-                            ),
-                          ),
-                          child: Text(
-                            '$preset',
-                            style: AppTypography.supporting(context).copyWith(
-                              color: amount == preset
-                                  ? colors.primary
-                                  : colors.textSecondary,
-                            ),
+                    );
+                    final field = Semantics(
+                      label: '$label，毫升',
+                      child: CupertinoTextField(
+                        key: const ValueKey('milk-amount-input'),
+                        controller: controller,
+                        enabled: enabled,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        style: inputStyle,
+                        textAlign: TextAlign.center,
+                        cursorColor: colors.primary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.background,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: errorText == null
+                                ? colors.border
+                                : colors.alert,
                           ),
                         ),
+                        suffix: inlineUnit
+                            ? Padding(
+                                padding: const EdgeInsets.only(right: 14),
+                                child: Text('mL', style: unitStyle),
+                              )
+                            : null,
+                        onChanged: (_) => onChanged?.call(),
+                        onSubmitted: (_) => onSubmitted?.call(),
                       ),
-                  ],
+                    );
+                    if (inline) {
+                      return Row(
+                        children: [
+                          decrease,
+                          const SizedBox(width: 10),
+                          Expanded(child: field),
+                          const SizedBox(width: 10),
+                          increase,
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        field,
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            decrease,
+                            const SizedBox(width: 12),
+                            if (!inlineUnit) ...[
+                              Text('mL', style: unitStyle),
+                              const SizedBox(width: 12),
+                            ],
+                            increase,
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                MilkAmountRuler(
+                  key: const ValueKey('milk-amount-ruler'),
+                  controller: controller,
+                  enabled: enabled,
+                  label: label,
+                  onChanged: _setAmount,
                 ),
               ],
             );

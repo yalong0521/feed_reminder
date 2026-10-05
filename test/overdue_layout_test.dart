@@ -338,6 +338,13 @@ void main() {
           size.height - padding.bottom,
         );
         _expectInside(dockBounds, usable);
+        final adjust = find.byKey(const ValueKey('adjust-meal-amount'));
+        expect(adjust.hitTestable(), findsOneWidget);
+        _expectInside(tester.getRect(adjust), dockBounds);
+        expect(
+          find.byKey(const ValueKey('snooze-reminder')).hitTestable(),
+          findsOneWidget,
+        );
         expect(stop.hitTestable(), findsOneWidget);
 
         for (final target in [number, find.text('该喂奶了')]) {

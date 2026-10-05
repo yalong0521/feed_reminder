@@ -11,6 +11,7 @@
     "abilities": [
       {
         "name": "EntryAbility",
+        "launchType": "singleton",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         // Enable sensor rotation while respecting the system rotation lock.
         "orientation": "auto_rotation_unspecified",
@@ -27,6 +28,17 @@
             "entities": ["entity.system.home"],
             "actions": ["action.system.home"]
           }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "FeedReminderFormAbility",
+        "srcEntry": "./ets/widgets/FeedReminderFormAbility.ets",
+        "type": "form",
+        "exported": true,
+        "metadata": [
+          { "name": "ohos.extension.form", "resource": "$profile:form_config" }
         ]
       }
     ],

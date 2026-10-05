@@ -286,6 +286,91 @@ void main() {
     },
   );
 
+  testWidgets('large-text decline feedback becomes visible on every activation', (
+    tester,
+  ) async {
+    final prefs = _Preferences({});
+    final storage = _Storage(() async => prefs);
+    final notifications = _Notifications();
+    final audio = _Audio();
+    await _mount(
+      tester,
+      storage,
+      notifications,
+      audio,
+      size: const Size(320, 640),
+      scale: 1.8,
+    );
+    final body = find.descendant(
+      of: find.byKey(const ValueKey('privacy-consent-dialog')),
+      matching: find.byType(Scrollable),
+    );
+    final notice = find.byKey(const ValueKey('privacy-consent-notice'));
+    for (var activation = 0; activation < 2; activation++) {
+      // The second activation repeats the same message after reading the top.
+      tester.state<ScrollableState>(body).position.jumpTo(0);
+      await tester.pumpAndSettle();
+      await _tap(tester, 'privacy-consent-decline');
+      expect(notice.hitTestable(), findsOneWidget);
+      expect(
+        tester.getRect(notice).top,
+        greaterThanOrEqualTo(tester.getRect(body).top - 1),
+      );
+      expect(
+        tester.getRect(notice).bottom,
+        lessThanOrEqualTo(tester.getRect(body).bottom + 1),
+      );
+    }
+    _expectNotStarted(storage, notifications, audio);
+    expect(prefs.consentWrites, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('large-text consent save failure reveals feedback after scrolling', (
+    tester,
+  ) async {
+    final prefs = _Preferences({})
+      ..rejectConsentWrite = true
+      ..consentWriteGate = Completer<void>();
+    final storage = _Storage(() async => prefs);
+    final notifications = _Notifications();
+    final audio = _Audio();
+    await _mount(
+      tester,
+      storage,
+      notifications,
+      audio,
+      size: const Size(320, 640),
+      scale: 1.8,
+    );
+    final body = find.descendant(
+      of: find.byKey(const ValueKey('privacy-consent-dialog')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.drag(body, const Offset(0, -140));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('privacy-consent-accept')));
+    await tester.pump();
+    expect(prefs.consentWrites, 1);
+    prefs.consentWriteGate!.complete();
+    await tester.pumpAndSettle();
+
+    final notice = find.byKey(const ValueKey('privacy-consent-notice'));
+    expect(find.textContaining('隐私确认保存失败'), findsOneWidget);
+    expect(notice.hitTestable(), findsOneWidget);
+    expect(
+      tester.getRect(notice).top,
+      greaterThanOrEqualTo(tester.getRect(body).top - 1),
+    );
+    expect(
+      tester.getRect(notice).bottom,
+      lessThanOrEqualTo(tester.getRect(body).bottom + 1),
+    );
+    _expectNotStarted(storage, notifications, audio);
+    expect(prefs.disk.containsKey(_consentStorageKey), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'a consent read completed in background defers permission and audio until resume',
     (tester) async {

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/constants.dart';
@@ -18,6 +17,8 @@ class AppPressable extends StatefulWidget {
     this.semanticLabel,
     this.selected,
     this.excludeSemantics = false,
+    this.radius = 24,
+    this.focusColor,
   });
 
   final Widget child;
@@ -25,6 +26,8 @@ class AppPressable extends StatefulWidget {
   final String? semanticLabel;
   final bool? selected;
   final bool excludeSemantics;
+  final double radius;
+  final Color? focusColor;
 
   @override
   State<AppPressable> createState() => _AppPressableState();
@@ -106,10 +109,12 @@ class _AppPressableState extends State<AppPressable> {
               child: DecoratedBox(
                 position: DecorationPosition.foreground,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(widget.radius),
                   border: _focused
                       ? Border.all(
-                          color: AppPalette.of(context).primary,
+                          color:
+                              widget.focusColor ??
+                              AppPalette.of(context).primary,
                           width: 2,
                         )
                       : null,
@@ -136,6 +141,7 @@ class AppButton extends StatelessWidget {
     this.padding,
     this.semanticLabel,
     this.radius = 24,
+    this.focusColor,
   });
 
   final Widget child;
@@ -147,6 +153,7 @@ class AppButton extends StatelessWidget {
   final EdgeInsetsGeometry? padding;
   final String? semanticLabel;
   final double radius;
+  final Color? focusColor;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +185,8 @@ class AppButton extends StatelessWidget {
     return AppPressable(
       onPressed: onPressed,
       semanticLabel: semanticLabel,
+      radius: radius,
+      focusColor: focusColor ?? (filled ? colors.onPrimary : colors.primary),
       child: surface
           ? AppSurface(radius: radius, tinted: filled, child: content)
           : content,
@@ -350,76 +359,49 @@ Future<DateTime?> showAppDateTimePicker(
 
   if (minimum != null && selected.isBefore(minimum)) selected = minimum;
   if (maximum != null && selected.isAfter(maximum)) selected = maximum;
-  return showGeneralDialog<DateTime>(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: '关闭时间选择',
-    barrierColor: Colors.black.withValues(alpha: .3),
-    transitionDuration: Duration(
-      milliseconds: MediaQuery.disableAnimationsOf(context) ? 0 : 220,
-    ),
-    transitionBuilder: (context, animation, secondary, child) => FadeTransition(
-      opacity: animation,
-      child: ScaleTransition(
-        scale: Tween(begin: .96, end: 1.0).animate(
-          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-        ),
-        child: child,
-      ),
-    ),
-    pageBuilder: (context, animation, secondary) => SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
+  return Navigator.of(context, rootNavigator: true).push<DateTime>(
+    createAppMessageDialogRoute<DateTime>(
+      context,
+      barrierLabel: '关闭时间选择',
+      builder: (context) => SafeArea(
+        child: Padding(
           padding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: AppSurface(
-              radius: 24,
-              padding: const EdgeInsets.all(20),
-              child: DefaultTextStyle(
-                style: AppTypography.body(context),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: AppSurface(
+                key: const ValueKey('app-date-time-picker-surface'),
+                radius: 24,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: DefaultTextStyle(
+                    style: AppTypography.body(context),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        AppButton(
-                          surface: false,
-                          compact: true,
-                          onPressed: () => close(context),
-                          child: const Text('取消'),
+                        _DateTimePickerHeader(
+                          title: title,
+                          onCancel: () => close(context),
+                          onConfirm: () => close(context, selected),
                         ),
-                        Expanded(
-                          child: Text(
-                            title,
-                            textAlign: TextAlign.center,
-                            style: AppTypography.dialogTitle(context),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: MediaQuery.sizeOf(context).height < 400
+                              ? 170
+                              : 216,
+                          child: CupertinoDatePicker(
+                            key: const ValueKey('app-date-time-picker'),
+                            mode: mode,
+                            initialDateTime: selected,
+                            minimumDate: minimum,
+                            maximumDate: maximum,
+                            use24hFormat: true,
+                            onDateTimeChanged: (value) => selected = value,
                           ),
-                        ),
-                        AppButton(
-                          compact: true,
-                          filled: true,
-                          onPressed: () => close(context, selected),
-                          child: const Text('完成'),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: MediaQuery.sizeOf(context).height < 400
-                          ? 170
-                          : 216,
-                      child: CupertinoDatePicker(
-                        key: const ValueKey('app-date-time-picker'),
-                        mode: mode,
-                        initialDateTime: selected,
-                        minimumDate: minimum,
-                        maximumDate: maximum,
-                        use24hFormat: true,
-                        onDateTimeChanged: (value) => selected = value,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -428,4 +410,69 @@ Future<DateTime?> showAppDateTimePicker(
       ),
     ),
   );
+}
+
+class _DateTimePickerHeader extends StatelessWidget {
+  const _DateTimePickerHeader({
+    required this.title,
+    required this.onCancel,
+    required this.onConfirm,
+  });
+
+  final String title;
+  final VoidCallback onCancel;
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    final heading = Semantics(
+      header: true,
+      namesRoute: true,
+      child: Text(
+        title,
+        textAlign: TextAlign.center,
+        style: AppTypography.dialogTitle(context),
+      ),
+    );
+    final cancel = AppButton(
+      surface: false,
+      compact: true,
+      onPressed: onCancel,
+      child: const Text('取消'),
+    );
+    final confirm = AppButton(
+      compact: true,
+      filled: true,
+      onPressed: onConfirm,
+      child: const Text('完成'),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 360 ||
+            MediaQuery.textScalerOf(context).scale(16) > 24;
+        if (!stacked) {
+          return Row(
+            children: [
+              cancel,
+              Expanded(child: heading),
+              confirm,
+            ],
+          );
+        }
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            heading,
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [cancel, confirm],
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

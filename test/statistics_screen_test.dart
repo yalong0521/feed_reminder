@@ -12,6 +12,7 @@ import 'package:feed_reminder/utils/constants.dart';
 import 'package:feed_reminder/widgets/app_controls.dart';
 import 'package:feed_reminder/widgets/milk_volume_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoDatePicker;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -57,7 +58,12 @@ Future<FeedProvider> _provider(List<FeedRecord> records) async {
   return provider;
 }
 
-Widget _app(FeedProvider provider, {double textScale = 1, bool dark = false}) =>
+Widget _app(
+  FeedProvider provider, {
+  double textScale = 1,
+  bool dark = false,
+  Widget? home,
+}) =>
     ChangeNotifierProvider.value(
       value: provider,
       child: MaterialApp(
@@ -68,11 +74,179 @@ Widget _app(FeedProvider provider, {double textScale = 1, bool dark = false}) =>
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: const StatisticsScreen(),
+        home: home ?? const StatisticsScreen(),
       ),
     );
 
+Future<void> _customRange(
+  WidgetTester tester,
+  DateTime start,
+  DateTime end,
+) async {
+  final custom = find.byKey(const ValueKey('statistics-range-custom'));
+  await tester.ensureVisible(custom);
+  await tester.tap(custom);
+  await tester.pumpAndSettle();
+  for (final field in [('date-range-start', start), ('date-range-end', end)]) {
+    final control = find.byKey(ValueKey(field.$1));
+    await tester.ensureVisible(control);
+    await tester.tap(control);
+    await tester.pumpAndSettle();
+    tester
+        .widget<CupertinoDatePicker>(
+          find.byKey(const ValueKey('query-calendar-picker')),
+        )
+        .onDateTimeChanged(field.$2);
+    final done = find.byKey(const ValueKey('query-calendar-done'));
+    await tester.ensureVisible(done);
+    await tester.tap(done);
+    await tester.pumpAndSettle();
+  }
+  final apply = find.byKey(const ValueKey('date-range-apply'));
+  await tester.ensureVisible(apply);
+  await tester.tap(apply);
+  await tester.pumpAndSettle();
+}
+
 void main() {
+  testWidgets('rapid statistics back returns to its caller only once', (
+    tester,
+  ) async {
+    final provider = await _provider([]);
+    await tester.pumpWidget(
+      _app(
+        provider,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => AppButton(
+              key: const ValueKey('open-statistics'),
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => const StatisticsScreen()),
+              ),
+              child: const Text('查看统计'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-statistics')));
+    await tester.pumpAndSettle();
+    final back = tester
+        .widget<AppButton>(find.byKey(const ValueKey('statistics-back')))
+        .onPressed!;
+    back();
+    back();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(StatisticsScreen), findsNothing);
+    expect(find.byKey(const ValueKey('open-statistics')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('open-statistics')));
+    await tester.pumpAndSettle();
+    expect(find.byType(StatisticsScreen), findsOneWidget);
+  });
+
+  testWidgets(
+    'custom periods show exact totals, retain valid day and reset invalid day',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final provider = await _provider([
+        FeedRecord(time: DateTime(2026, 9, 1), milkAmountMl: 100),
+        FeedRecord(time: DateTime(2026, 9, 30, 12), milkAmountMl: 200),
+        FeedRecord(time: DateTime(2026, 10, 3, 9), milkAmountMl: 300),
+      ]);
+      await tester.pumpWidget(_app(provider));
+      await tester.pumpAndSettle();
+      await _customRange(tester, DateTime(2026, 9, 1), DateTime(2026, 9, 30));
+      MilkVolumeChart chart() =>
+          tester.widget<MilkVolumeChart>(find.byType(MilkVolumeChart));
+      expect(chart().days, hasLength(30));
+      expect(chart().selectedDate, DateTime(2026, 9, 30));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('statistics-total')))
+            .textSpan!
+            .toPlainText(),
+        '300 mL',
+      );
+      expect(find.text('150.0 mL'), findsOneWidget);
+      chart().onSelectDay(DateTime(2026, 9, 15));
+      await tester.pumpAndSettle();
+      await _customRange(tester, DateTime(2026, 8, 20), DateTime(2026, 9, 18));
+      expect(chart().selectedDate, DateTime(2026, 9, 15));
+      final retained = find.byKey(
+        ValueKey('milk-chart-day-${DateTime(2026, 9, 15).toIso8601String()}'),
+      );
+      expect(retained.hitTestable(), findsOneWidget);
+      await _customRange(tester, DateTime(2026, 7, 1), DateTime(2026, 7, 30));
+      expect(chart().selectedDate, DateTime(2026, 7, 30));
+      expect(chart().days.first.date, DateTime(2026, 7, 1));
+      expect(find.text('这段时间还没有喂奶记录'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    '366-day range uses disjoint pages of at most 30 days at large text',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final provider = await _provider([
+        FeedRecord(time: DateTime(2025, 10, 3, 9), milkAmountMl: 100),
+        FeedRecord(time: DateTime(2026, 10, 3, 9), milkAmountMl: 200),
+      ]);
+      await tester.pumpWidget(_app(provider, textScale: 2, dark: true));
+      await tester.pumpAndSettle();
+      await _customRange(tester, DateTime(2025, 10, 3), DateTime(2026, 10, 3));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('statistics-total')))
+            .textSpan!
+            .toPlainText(),
+        '300 mL',
+      );
+      expect(find.text('日均按 366 个自然日计算，包含没有记录的日期。'), findsOneWidget);
+      final seen = <DateTime>{};
+      for (var page = 0; page < 13; page++) {
+        final chart = tester.widget<MilkVolumeChart>(
+          find.byType(MilkVolumeChart),
+        );
+        expect(chart.days.length, lessThanOrEqualTo(30));
+        expect(
+          seen.intersection(chart.days.map((day) => day.date).toSet()),
+          isEmpty,
+        );
+        seen.addAll(chart.days.map((day) => day.date));
+        final previous = find.byKey(
+          const ValueKey('statistics-chart-previous'),
+        );
+        await tester.ensureVisible(previous);
+        if (page == 12) {
+          expect(tester.widget<AppButton>(previous).onPressed, isNull);
+        } else {
+          await tester.tap(previous);
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+      }
+      expect(seen, hasLength(366));
+      final next = find.byKey(const ValueKey('statistics-chart-next'));
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      final chart = tester.widget<MilkVolumeChart>(
+        find.byType(MilkVolumeChart),
+      );
+      expect(chart.days, hasLength(30));
+      expect(chart.selectedDate, chart.days.last.date);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final settings in [
     (textScale: 1.0, reduceMotion: false),
     (textScale: 2.0, reduceMotion: true),

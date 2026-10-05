@@ -117,6 +117,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> enterAmount(WidgetTester tester, int amount) async {
+    final input = find.byKey(const ValueKey('milk-amount-input'));
+    await tester.ensureVisible(input);
+    await tester.enterText(input, '$amount');
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'backfill waits for stored default and prevents duplicate dialogs',
     (tester) async {
@@ -213,29 +220,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('default amount editor validates and persists preset changes', (
-    tester,
-  ) async {
-    await launch(tester, home: const SettingsScreen());
-    await tapVisible(tester, 'default-milk-amount');
-    await tester.enterText(
-      find.byKey(const ValueKey('milk-amount-input')),
-      '2001',
-    );
-    await tapVisible(tester, 'save-default-milk-amount');
-    expect(find.text('请输入 0–2000 之间的整数（mL）'), findsOneWidget);
-    expect(settings.defaultMilkAmountMl, 0);
-    await tapVisible(tester, 'milk-amount-preset-150');
-    await tapVisible(tester, 'milk-amount-increase');
-    await tapVisible(tester, 'save-default-milk-amount');
-    expect(settings.defaultMilkAmountMl, 160);
-    expect(find.text('160 mL'), findsOneWidget);
-    final reloaded = SettingsProvider(storage: storage);
-    await reloaded.ready;
-    expect(reloaded.defaultMilkAmountMl, 160);
-    reloaded.dispose();
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'default amount editor validates and persists input and step changes',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await launch(tester, home: const SettingsScreen());
+        await tapVisible(tester, 'default-milk-amount');
+        final titleSemantics = tester
+            .getSemantics(find.text('设置默认奶量'))
+            .getSemanticsData();
+        expect(titleSemantics.flagsCollection.isHeader, isTrue);
+        expect(titleSemantics.flagsCollection.namesRoute, isTrue);
+        await tester.enterText(
+          find.byKey(const ValueKey('milk-amount-input')),
+          '2001',
+        );
+        await tapVisible(tester, 'save-default-milk-amount');
+        expect(find.text('请输入 0–2000 之间的整数（mL）'), findsOneWidget);
+        expect(settings.defaultMilkAmountMl, 0);
+        await enterAmount(tester, 150);
+        await tapVisible(tester, 'milk-amount-increase');
+        await tapVisible(tester, 'save-default-milk-amount');
+        expect(settings.defaultMilkAmountMl, 160);
+        expect(find.text('160 mL'), findsOneWidget);
+        final reloaded = SettingsProvider(storage: storage);
+        await reloaded.ready;
+        expect(reloaded.defaultMilkAmountMl, 160);
+        reloaded.dispose();
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
 
   testWidgets('backfill starts from default while old records remain unknown', (
     tester,
@@ -285,7 +303,7 @@ void main() {
             .text,
         '90',
       );
-      await tapVisible(tester, 'milk-amount-preset-150');
+      await enterAmount(tester, 150);
       await tapVisible(tester, 'add-feed-save');
       expect(feed.feedHistory.single.id, 'original');
       expect(feed.feedHistory.single.time, originalTime);
@@ -309,7 +327,7 @@ void main() {
         );
         final deadline = feed.nextFeedTime;
         await tapVisible(tester, 'edit-record-original');
-        await tapVisible(tester, 'milk-amount-preset-120');
+        await enterAmount(tester, 120);
         await tapVisible(tester, 'add-feed-save');
         expect(feed.feedHistory.single.time, originalTime);
         expect(feed.feedHistory.single.milkAmountMl, 120);
@@ -336,7 +354,7 @@ void main() {
         ],
       );
       await tapVisible(tester, 'edit-record-retry');
-      await tapVisible(tester, 'milk-amount-preset-120');
+      await enterAmount(tester, 120);
       storage.failWrites = true;
       await tapVisible(tester, 'add-feed-save');
       expect(find.text('保存失败，请重试'), findsOneWidget);

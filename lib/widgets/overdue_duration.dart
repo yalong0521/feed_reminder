@@ -153,12 +153,39 @@ class _OverdueDurationState extends State<OverdueDuration>
       widget.color,
       widget.unitFontSize,
     );
-    final sideWidth = OverdueDuration._measureLayout(
-      context,
-      duration: widget.duration,
-      fontSize: widget.fontSize,
-      unitFontSize: widget.unitFontSize,
-    ).sideWidth;
+    Widget label(String value, String peer, Alignment alignment) {
+      final inherited = DefaultTextStyle.of(context);
+      var measuringStyle = inherited.style.merge(labelStyle);
+      if (MediaQuery.boldTextOf(context)) {
+        measuringStyle = measuringStyle.merge(
+          const TextStyle(fontWeight: FontWeight.bold),
+        );
+      }
+      // Both slots lay out both words, so their widths remain equal even when
+      // a browser loads its CJK fallback font after the first frame. A fixed
+      // width from a one-off TextPainter would retain the old font's width and
+      // clip one character. These paragraphs relayout with the rendered font.
+      return Stack(
+        alignment: alignment,
+        children: [
+          ExcludeSemantics(
+            child: Opacity(
+              opacity: 0,
+              child: RichText(
+                text: TextSpan(text: peer, style: measuringStyle),
+                textScaler: MediaQuery.textScalerOf(context),
+                textHeightBehavior: inherited.textHeightBehavior,
+                locale: Localizations.maybeLocaleOf(context),
+                maxLines: 1,
+                softWrap: false,
+              ),
+            ),
+          ),
+          Text(value, maxLines: 1, softWrap: false, style: labelStyle),
+        ],
+      );
+    }
+
     return Semantics(
       label: '超时 ${TimeUtils.formatDuration(widget.duration)}',
       excludeSemantics: true,
@@ -168,16 +195,7 @@ class _OverdueDurationState extends State<OverdueDuration>
         textBaseline: TextBaseline.alphabetic,
         children: [
           // Equal label slots keep the numeral centered.
-          SizedBox(
-            width: sideWidth,
-            child: Text(
-              '超时',
-              textAlign: TextAlign.right,
-              maxLines: 1,
-              softWrap: false,
-              style: labelStyle,
-            ),
-          ),
+          label('超时', '分钟', Alignment.centerRight),
           const SizedBox(width: 12),
           // Paint-only motion leaves the baseline and neighboring controls fixed.
           FadeTransition(
@@ -192,16 +210,7 @@ class _OverdueDurationState extends State<OverdueDuration>
             ),
           ),
           const SizedBox(width: 12),
-          SizedBox(
-            width: sideWidth,
-            child: Text(
-              '分钟',
-              textAlign: TextAlign.left,
-              maxLines: 1,
-              softWrap: false,
-              style: labelStyle,
-            ),
-          ),
+          label('分钟', '超时', Alignment.centerLeft),
         ],
       ),
     );
