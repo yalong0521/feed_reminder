@@ -1,6 +1,6 @@
 # 奶点记启动页资产
 
-- 桌面图标继续使用 `app_icon.png`；开屏专用 `launch_icon.png` 带透明圆角，由内置 imagegen 基于原图处理，避免依赖各平台是否自动裁切。
+- 鸿蒙与 Android 8.0+ 桌面图标采用独立奶瓶前景和陶土色背景，资源及导出方式见 `app-icon-layers.md`；其他平台保留 `app_icon.png` 合成图标。开屏专用 `launch_icon.png` 带透明圆角，由内置 imagegen 基于原图处理，避免依赖各平台是否自动裁切。
 - Android、iOS、鸿蒙及 Web 使用同一份开屏图，Web 不再单独依靠 CSS 圆角模拟。生成要求见 `launch-icon-prompt.txt`。
 - `launch-branding.svg` 与 `launch-branding-dark.svg` 是浅色、深色字标母版，画布为 200 × 80。
 - 标题为“奶点记”，短句为“记下每一餐，安心每一天”。字形轮廓沿用此前从 Noto Serif SC 转换的路径，使用 500 字重；标题 26、字距 5，短句 11、字距 1。

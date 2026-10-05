@@ -16,7 +16,7 @@
         // Enable sensor rotation while respecting the system rotation lock.
         "orientation": "auto_rotation_unspecified",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:icon",
+        "icon": "$media:app_icon_layered",
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:launch_icon",
         "startWindowBackground": "$color:start_window_background",
