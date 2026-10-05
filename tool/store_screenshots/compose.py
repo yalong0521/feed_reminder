@@ -55,7 +55,7 @@ def main():
             panel = Image.new('RGB', (aw, ah), '#f5eee4')
             pd = ImageDraw.Draw(panel)
             text(pd, (48, 52), '鸿蒙原生卡片', font(38, True), INK)
-            text(pd, (48, 113), '当前版本实际卡片预览', font(26))
+            text(pd, (48, 113), '按桌面空间，自由选择尺寸', font(26))
             widgets = [
                 ('QaNormalWide-light.jpg', (48, 246), (768, 384), '4×2 · 喂养概览', (48, 194)),
                 ('QaNormalSquare-light.jpg', (48, 762), (365, 384), '2×2 · 最近一餐', (48, 710)),

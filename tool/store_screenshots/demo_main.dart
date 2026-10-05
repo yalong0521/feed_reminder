@@ -15,7 +15,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const screenshotLogicalSize = Size(432, 768);
+const screenshotLogicalSize = Size(540, 960);
 final screenshotTime = DateTime(2026, 10, 6, 10, 20);
 SemanticsHandle? _captureSemantics;
 
@@ -50,7 +50,11 @@ List<FeedRecord> _records({required bool overdue}) => [
       FeedRecord(
         id: 'store-day-$day-meal-$meal',
         time: DateTime(2026, 10, 6 - day, 3 + meal * 3),
-        milkAmountMl: [150, 180, 160, 180, 150, 170][(meal + day) % 6],
+        // Vary each complete day's total as well as meal order, so the chart
+        // demonstrates a real trend instead of six identical daily sums.
+        milkAmountMl:
+            [150, 180, 160, 180, 150, 170][(meal + day) % 6] +
+            [0, 10, -5, 15, 5, -10, -15][day],
       ),
   // Match the demonstration desktop cards: four meals, total 720 mL.
   for (final hour in [0, 3, 6, if (!overdue) 9])
@@ -196,7 +200,7 @@ class _CaptureFrame extends StatelessWidget {
           child: MediaQuery(
             data: MediaQueryData(
               size: screenshotLogicalSize,
-              devicePixelRatio: 2,
+              devicePixelRatio: 1.6,
               textScaler: TextScaler.noScaling,
               disableAnimations: true,
               platformBrightness: dark ? Brightness.dark : Brightness.light,

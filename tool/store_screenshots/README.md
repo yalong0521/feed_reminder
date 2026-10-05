@@ -18,6 +18,10 @@ python -m http.server 8765 --bind 127.0.0.1 --directory build/store-assets-1.1.0
 directories. The build uses `--no-pub`. Complete normal dependency setup first
 if `.dart_tool/package_config.json` does not exist.
 
+The build adds a `main.dart.js` content hash to both generated script URLs, so
+reloading the preview after a rebuild fetches the current capture code instead
+of reusing cached demo data. This changes only the ignored capture output.
+
 Microsoft YaHei (`msyh.ttc` / `msyhbd.ttc`) is copied from Windows to the **ignored
 local build**, never to tracked source. Serve this capture build on localhost
 only and do not publish/distribute those OS font files. The final screenshot
@@ -25,15 +29,16 @@ PNGs contain rendered application pixels.
 
 ## Capture geometry
 
-The application frame is always **432 × 768 logical pixels**, positioned at the
+The application frame is always **540 × 960 logical pixels**, positioned at the
 top-left in `FittedBox(fit: BoxFit.contain)`, with no added title bar, corner mask,
-or device bezel. Its internal MediaQuery also remains exactly 432 × 768.
+or device bezel. Its internal MediaQuery also remains exactly 540 × 960, with a
+device pixel ratio of 1.6.
 
-Set the browser content viewport to **864 × 1536** at DPR=1 for an exact 2× frame.
+Set the browser content viewport to **864 × 1536** at DPR=1 for an exact 1.6× frame.
 The whole screenshot will then be **864 × 1536 pixels**, without outer space.
-A 432 × 768 viewport at DPR=2 produces the same pixel size. Other viewport aspect
-ratios show grey outside the fitted application; do not include that area in
-published images.
+Other viewport aspect ratios show grey outside the fitted application; do not
+include that area in published images. Use this same frame for all nine captures;
+do not resize individual screens to fit longer content.
 
 - `http://127.0.0.1:8765/`: normal light fixture.
 - `?state=overdue`: overdue fixture for the snooze screenshot.
@@ -48,7 +53,9 @@ all raw frames must share the same size and origin and preserve actual app pixel
 - Fixed local time **2026-10-06 10:20**; six complete previous days plus today.
 - Today's normal four meals: **00:00 / 03:00 / 06:00 / 09:00**, each **180 mL**,
   total **720 mL**. Three-hour interval gives next reminder **12:00** and **1:40**
-  remaining. Previous days vary for the seven-day chart.
+  remaining. The six previous days total **900 / 930 / 1020 / 1080 / 960 /
+  1050 mL** from September 30 through October 5, using modest per-meal offsets
+  to show daily differences in the seven-day chart. Today's records stay fixed.
 - Overdue fixture: last meal **06:40**, showing **40 minutes** overdue.
 - SharedPreferences is an in-memory mock. The injected provider clock does not
   advance and its periodic timer is disabled. Reloading restores the fixture.
@@ -74,7 +81,7 @@ and check the browser console before publication.
 | `04-backfill.png` | **补记喂奶** on history |
 | `05-statistics.png` | Cancel form → **奶量统计**, default 7 days |
 | `06-snooze.png` | Reload overdue fixture → **稍后提醒** |
-| `07-settings.png` | Normal fixture → **设置**, scroll to show night controls |
+| `07-settings.png` | **设置** at the top, showing interval, default amount and night controls |
 | `08-dark-timer.png` | Settings → 外观主题 **深色** → **计时** |
 | `09-data-management.png` | Switch theme back to 浅色 → Settings → **管理喂奶记录** |
 
