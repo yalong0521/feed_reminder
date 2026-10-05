@@ -2,6 +2,10 @@
   "string": [
     { "name": "widget_name", "value": "喂养概览" },
     { "name": "widget_description", "value": "查看最近一餐、当日汇总和下一次提醒，点击记录会进入应用确认。" },
+    { "name": "widget_recent_name", "value": "最近一餐" },
+    { "name": "widget_recent_description", "value": "查看最近一餐的时间、奶量和下一次提醒，点击记录进入应用确认。" },
+    { "name": "widget_next_name", "value": "下次喂奶" },
+    { "name": "widget_next_description", "value": "查看下一次喂奶的日期和时间，点击卡片打开计时页。" },
     {
       "name": "module_desc",
       "value": "离线喂奶记录与提醒"

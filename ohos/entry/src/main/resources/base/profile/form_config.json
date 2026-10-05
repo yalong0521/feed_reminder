@@ -18,6 +18,44 @@
       "updateDuration": 0,
       "defaultDimension": "2*4",
       "supportDimensions": ["2*4"]
+    },
+    {
+      "name": "FeedRecent",
+      "displayName": "$string:widget_recent_name",
+      "description": "$string:widget_recent_description",
+      "src": "./ets/widgets/pages/FeedRecent.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "isDefault": false,
+      "isDynamic": true,
+      "colorMode": "auto",
+      "updateEnabled": true,
+      "scheduledUpdateTime": "00:05",
+      "updateDuration": 0,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["2*2"]
+    },
+    {
+      "name": "FeedNext",
+      "displayName": "$string:widget_next_name",
+      "description": "$string:widget_next_description",
+      "src": "./ets/widgets/pages/FeedNext.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "isDefault": false,
+      "isDynamic": true,
+      "colorMode": "auto",
+      "updateEnabled": true,
+      "scheduledUpdateTime": "00:05",
+      "updateDuration": 0,
+      "defaultDimension": "1*2",
+      "supportDimensions": ["1*2"]
     }
   ]
 }

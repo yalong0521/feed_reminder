@@ -682,6 +682,7 @@ class _ConsentedFeedReminderAppState extends State<_ConsentedFeedReminderApp>
                                 ),
                                 HistoryScreen(
                                   todayFilterRequest: _todayHistoryRequest,
+                                  isActive: _index == 1 && _foreground,
                                 ),
                                 SettingsScreen(
                                   isActive: _index == 2 && _foreground,

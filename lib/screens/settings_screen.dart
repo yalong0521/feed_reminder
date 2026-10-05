@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_haptics.dart';
 import '../services/audio_service.dart';
 import '../services/notification_service.dart';
 import '../services/privacy_service.dart';
@@ -83,12 +84,17 @@ class _SettingsScreenState extends State<SettingsScreen>
     super.dispose();
   }
 
-  Future<void> _save(Future<void> Function() action) async {
-    if (_saving) return;
+  Future<void> _save(
+    Future<void> Function() action, {
+    required bool changed,
+  }) async {
+    if (_saving || !changed) return;
     setState(() => _saving = true);
     try {
       await action();
+      if (mounted && widget.isActive) AppHaptics.selection();
     } catch (_) {
+      if (mounted && widget.isActive) AppHaptics.warning();
       _showError('未能保存设置，请重试。');
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -180,7 +186,10 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
           );
       if (minutes != null && mounted) {
-        await _save(() => settings.setFeedInterval(minutes));
+        await _save(
+          () => settings.setFeedInterval(minutes),
+          changed: minutes != settings.feedIntervalMinutes,
+        );
       }
     } finally {
       _editing = false;
@@ -206,7 +215,10 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       );
       if (amount != null && mounted) {
-        await _save(() => settings.setDefaultMilkAmountMl(amount));
+        await _save(
+          () => settings.setDefaultMilkAmountMl(amount),
+          changed: amount != settings.defaultMilkAmountMl,
+        );
       }
     } finally {
       _editing = false;
@@ -240,7 +252,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       if (time != null && mounted) {
         final formatted =
             '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-        await _save(() => save(formatted));
+        await _save(() => save(formatted), changed: formatted != value);
       }
     } finally {
       _editing = false;
@@ -371,6 +383,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                               onCustom: () => _pickInterval(settings),
                               onSelect: (minutes) => _save(
                                 () => settings.setFeedInterval(minutes),
+                                changed:
+                                    minutes != settings.feedIntervalMinutes,
                               ),
                             ),
                           ],
@@ -411,6 +425,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   ? null
                                   : (value) => _save(
                                       () => settings.setNightModeEnabled(value),
+                                      changed:
+                                          value != settings.nightModeEnabled,
                                     ),
                             ),
                             const _GroupSeparator(),
@@ -461,6 +477,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                                       if (mounted) {
                                         await _save(
                                           () => settings.setSoundEnabled(value),
+                                          changed:
+                                              value != settings.soundEnabled,
                                         );
                                       }
                                     },
@@ -477,6 +495,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   ? null
                                   : (value) => _save(
                                       () => settings.setSoundLoopEnabled(value),
+                                      changed:
+                                          value != settings.soundLoopEnabled,
                                     ),
                             ),
                             const _GroupSeparator(),
@@ -534,6 +554,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                                             () => settings.setThemeMode(
                                               option.$1,
                                             ),
+                                            changed:
+                                                option.$1 != settings.themeMode,
                                           ),
                                   ),
                               ],
@@ -560,6 +582,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                                       () => settings.setBurnInProtectionEnabled(
                                         value,
                                       ),
+                                      changed:
+                                          value !=
+                                          settings.burnInProtectionEnabled,
                                     ),
                             ),
                           ],
@@ -1156,6 +1181,7 @@ class _MilkAmountEditorState extends State<_MilkAmountEditor> {
     if (_closing) return;
     final error = MilkAmountField.validate(_controller.text);
     if (error != null) {
+      AppHaptics.warning();
       setState(() => _error = error);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _closing || _error == null) return;
@@ -1268,6 +1294,7 @@ class _IntervalEditorState extends State<_IntervalEditor> {
         value == null ||
         value < 1 ||
         value > 1440) {
+      AppHaptics.warning();
       setState(() => _error = '请输入 1–1440 之间的整数');
       return;
     }

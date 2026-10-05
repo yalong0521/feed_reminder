@@ -4,10 +4,10 @@ const storage = new LocalStorage();
 
 @Entry(storage)
 @Component
-struct FeedSummary {
+struct FeedRecent {
   build() {
     Column() {
-      FeedSummaryCard({ dimension: 3 })
+      FeedSummaryCard({ dimension: 2 })
     }.width('100%').height('100%')
   }
 }

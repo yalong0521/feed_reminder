@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/feed_record.dart';
 import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_haptics.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
@@ -110,6 +111,7 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
     if (_saving || _picking || _closing || provider.isSaving) return;
     final milkError = MilkAmountField.validate(_milkController.text);
     if (milkError != null) {
+      AppHaptics.warning();
       setState(() => _milkError = milkError);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _closing || _milkError == null) return;
@@ -124,12 +126,14 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
       return;
     }
     if (!_keepsRecordedTime && _selectedDate.isAfter(provider.referenceTime)) {
+      AppHaptics.warning();
       // The clock can move between the enabled button's build and its tap.
       // Future-time errors are derived below so they expire with validity.
       setState(() => _error = null);
       return;
     }
     if (!_keepsRecordedTime && _selectedDate.isBefore(DateTime(2020))) {
+      AppHaptics.warning();
       setState(() => _error = '请选择 2020 年以后的日期');
       return;
     }
@@ -152,10 +156,16 @@ class _AddFeedRecordDialogState extends State<AddFeedRecordDialog> {
         );
       }
       if (!mounted) return;
+      if (widget.record == null ||
+          widget.record!.milkAmountMl != amount ||
+          !widget.record!.time.isAtSameMomentAs(_selectedDate)) {
+        AppHaptics.success();
+      }
       setState(() => _saving = false);
       _close(true);
     } catch (_) {
       if (!mounted) return;
+      AppHaptics.warning();
       setState(() {
         _saving = false;
         _error = '保存失败，请重试';

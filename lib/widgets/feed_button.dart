@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import '../services/app_haptics.dart';
 import '../utils/constants.dart';
 import 'app_surface.dart';
 import 'app_controls.dart';
@@ -13,12 +14,14 @@ class FeedButton extends StatefulWidget {
   final Future<void> Function() onPressed;
   final Future<void> Function()? onUndo;
   final bool enabled;
+  final bool isActive;
   final int? milkAmountMl;
   const FeedButton({
     super.key,
     required this.onPressed,
     this.onUndo,
     this.enabled = true,
+    this.isActive = true,
     this.milkAmountMl,
   });
   @override
@@ -46,6 +49,8 @@ class _FeedButtonState extends State<FeedButton>
   double? _gestureWidth;
 
   bool get _interactive => widget.enabled && !_busy && !_saved;
+  bool get _feedbackActive =>
+      widget.isActive && (ModalRoute.of(context)?.isCurrent ?? true);
 
   @override
   void didUpdateWidget(FeedButton oldWidget) {
@@ -91,7 +96,7 @@ class _FeedButtonState extends State<FeedButton>
     try {
       await widget.onPressed();
       if (!mounted) return;
-      unawaited(HapticFeedback.lightImpact());
+      if (_feedbackActive) AppHaptics.success();
       setState(() {
         _saved = true;
         _busy = false;
@@ -100,6 +105,7 @@ class _FeedButtonState extends State<FeedButton>
       _scheduleReset();
     } catch (_) {
       if (!mounted) return;
+      if (_feedbackActive) AppHaptics.warning();
       setState(() {
         _busy = false;
         _failed = true;
@@ -130,6 +136,7 @@ class _FeedButtonState extends State<FeedButton>
     try {
       await widget.onUndo!();
       if (!mounted) return;
+      if (_feedbackActive) AppHaptics.success();
       setState(() {
         _saved = false;
         _busy = false;
@@ -139,6 +146,7 @@ class _FeedButtonState extends State<FeedButton>
       _progress.value = 0;
     } catch (_) {
       if (!mounted) return;
+      if (_feedbackActive) AppHaptics.warning();
       // Leave time to retry without permanently blocking the next recording.
       setState(() {
         _busy = false;

@@ -25,6 +25,7 @@ class LandscapeFeedPanel extends StatelessWidget {
     required this.onBackfill,
     this.onHistory,
     this.pulseEnabled = true,
+    this.isActive = true,
     this.defaultMilkAmountMl = 0,
     this.recordingEnabled = true,
     this.isMilkAmountAdjusted = false,
@@ -39,6 +40,7 @@ class LandscapeFeedPanel extends StatelessWidget {
   final VoidCallback onBackfill;
   final VoidCallback? onHistory;
   final bool pulseEnabled;
+  final bool isActive;
   final int defaultMilkAmountMl;
   final bool recordingEnabled;
   final bool isMilkAmountAdjusted;
@@ -656,6 +658,7 @@ class LandscapeFeedPanel extends StatelessWidget {
             child: FeedButton(
               onPressed: onRecord,
               onUndo: onUndo,
+              isActive: isActive,
               milkAmountMl: defaultMilkAmountMl,
               enabled: recordingEnabled && feed.isInitialized && !feed.isSaving,
             ),

@@ -85,7 +85,7 @@ test('failed form update stops the reconciliation loop without losing future ref
 });
 
 function widgetStore(fileIo, update, preferences = {}) {
-  return load('WidgetStore.ets', ['WidgetStore', 'WidgetSnapshot'], {
+  return load('WidgetStore.ets', ['WidgetStore', 'WidgetSnapshot', 'WidgetViewData'], {
     preferences,
     fileIo,
     formProvider: { updateForm: update },
@@ -157,6 +157,10 @@ for (const scenario of [
     const data = WidgetStore.viewData(snapshot);
     assert.equal(data.latestTime, scenario.mealLabel);
     assert.equal(data.nextReminder, `下次 ${scenario.nextLabel}`);
+    assert.equal(data.latestDate, scenario.mealLabel.substring(0, 5));
+    assert.equal(data.latestClock, scenario.mealLabel.substring(6));
+    assert.equal(data.compactReminderLabel, `下次喂奶 · ${scenario.nextLabel.substring(0, 5)}`);
+    assert.equal(data.compactReminderValue, scenario.nextLabel.substring(6));
   });
 }
 
@@ -173,9 +177,73 @@ test('legacy projections keep the published timezone and reject invalid new offs
   const data = WidgetStore.viewData(snapshot);
   assert.equal(data.latestTime, '10/03 07:30');
   assert.equal(data.nextReminder, '下次 10/03 10:30');
+  assert.equal(data.latestDate, '10/03');
+  assert.equal(data.latestClock, '07:30');
+  assert.equal(data.compactReminderLabel, '下次喂奶 · 10/03');
+  assert.equal(data.compactReminderValue, '10:30');
   snapshot.nextFeedTimeZoneOffsetMinutes = 841;
   assert.equal(WidgetStore.valid(snapshot), false);
 });
+
+test('compact card preserves the private placeholder and distinguishes reminder states', () => {
+  const { WidgetStore, WidgetSnapshot, WidgetViewData } = widgetStore({}, async () => {});
+  const placeholder = new WidgetViewData();
+  assert.equal(placeholder.ready, false);
+  assert.equal(placeholder.compactReminderLabel, '奶点记');
+  assert.equal(placeholder.compactReminderValue, '打开应用');
+  assert.equal(placeholder.latestDate, '');
+  assert.equal(placeholder.latestClock, '暂无记录');
+
+  const snapshot = new WidgetSnapshot();
+  snapshot.dateKey = '2026-10-05';
+  const empty = WidgetStore.viewData(snapshot);
+  assert.equal(empty.ready, true);
+  assert.equal(empty.compactReminderLabel, '奶点记');
+  assert.equal(empty.compactReminderValue, '暂无记录');
+  assert.equal(empty.latestDate, '');
+  assert.equal(empty.latestClock, '暂无记录');
+
+  snapshot.latestTimeMs = Date.parse('2026-10-05T01:30:00Z');
+  const noReminder = WidgetStore.viewData(snapshot);
+  assert.equal(noReminder.compactReminderLabel, '下次喂奶');
+  assert.equal(noReminder.compactReminderValue, '暂无提醒');
+
+  snapshot.reminderAcknowledged = true;
+  snapshot.nextFeedTimeMs = Date.parse('2026-10-05T04:30:00Z');
+  const stopped = WidgetStore.viewData(snapshot);
+  assert.equal(stopped.compactReminderLabel, '本次提醒');
+  assert.equal(stopped.compactReminderValue, '已停止');
+
+  snapshot.latestTimeMs = null;
+  const emptyWithStaleReminder = WidgetStore.viewData(snapshot);
+  assert.equal(emptyWithStaleReminder.compactReminderLabel, '奶点记');
+  assert.equal(emptyWithStaleReminder.compactReminderValue, '暂无记录');
+});
+
+for (const scenario of [
+  { name: 'next local day and year', offset: 480,
+    meal: '2026-12-31T15:30:00Z', mealDate: '12/31', mealClock: '23:30',
+    next: '2026-12-31T17:30:00Z', nextDate: '01/01', nextClock: '01:30' },
+  { name: 'previous local day and year', offset: -480,
+    meal: '2027-01-01T06:30:00Z', mealDate: '12/31', mealClock: '22:30',
+    next: '2027-01-01T07:30:00Z', nextDate: '12/31', nextClock: '23:30' },
+]) {
+  test(`compact date and clock stay paired across ${scenario.name}`, () => {
+    const { WidgetStore, WidgetSnapshot } = widgetStore({}, async () => {});
+    const snapshot = new WidgetSnapshot();
+    snapshot.dateKey = '2027-01-01';
+    snapshot.zoneOffsetMinutes = 0;
+    snapshot.latestTimeMs = Date.parse(scenario.meal);
+    snapshot.latestTimeZoneOffsetMinutes = scenario.offset;
+    snapshot.nextFeedTimeMs = Date.parse(scenario.next);
+    snapshot.nextFeedTimeZoneOffsetMinutes = scenario.offset;
+    const data = WidgetStore.viewData(snapshot);
+    assert.equal(data.latestDate, scenario.mealDate);
+    assert.equal(data.latestClock, scenario.mealClock);
+    assert.equal(data.compactReminderLabel, `下次喂奶 · ${scenario.nextDate}`);
+    assert.equal(data.compactReminderValue, scenario.nextClock);
+  });
+}
 
 test('native launch action remains available until one atomic Dart read', () => {
   const signals = [];

@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../services/app_haptics.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import 'app_controls.dart';
@@ -41,6 +42,12 @@ class MilkAmountField extends StatelessWidget {
       selection: TextSelection.collapsed(offset: '$amount'.length),
     );
     onChanged?.call();
+  }
+
+  void _stepAmount(int amount) {
+    if (int.tryParse(controller.text) == amount) return;
+    _setAmount(amount);
+    AppHaptics.selection();
   }
 
   @override
@@ -98,7 +105,7 @@ class MilkAmountField extends StatelessWidget {
                       padding: const EdgeInsets.all(10),
                       semanticLabel: '减少 10 毫升',
                       onPressed: enabled && amount != null && amount > 0
-                          ? () => _setAmount((amount - 10).clamp(0, 2000))
+                          ? () => _stepAmount((amount - 10).clamp(0, 2000))
                           : null,
                       child: const Icon(CupertinoIcons.minus, size: 18),
                     );
@@ -108,7 +115,7 @@ class MilkAmountField extends StatelessWidget {
                       padding: const EdgeInsets.all(10),
                       semanticLabel: '增加 10 毫升',
                       onPressed: enabled && amount != null && amount < 2000
-                          ? () => _setAmount((amount + 10).clamp(0, 2000))
+                          ? () => _stepAmount((amount + 10).clamp(0, 2000))
                           : null,
                       child: const Icon(CupertinoIcons.plus, size: 18),
                     );

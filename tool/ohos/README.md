@@ -195,6 +195,14 @@ Connect 启用托管、填写并发布声明后，须将该声明随应用版本
 目标真机验证；Dart 测试与 HAP/APP 编译通过不能代替这些验证。托管适用范围与
 审核要求见[华为隐私声明托管 FAQ](https://developer.huawei.com/consumer/cn/doc/app/agc-help-privacy-policy-faq-0000002342315628)。
 
+## 操作触感
+
+`AppHaptics` 统一控制选择、成功和警示反馈：奶量尺在手指拖动经过 10 mL 刻度时轻触，加减奶量及设置生效时提示，记录/补记/修改/撤销/删除/提醒处理完成后确认；操作失败或主动提交非法值时配合可见错误提示。取消、同值选择、普通导航、输入同步及松手后的惯性滚动不触发。反馈有节流，不延迟排队，也不参与业务保存的成功判定。
+
+鸿蒙通过 `feed_reminder/haptics` 使用短预置效果和 `usage: 'touch'`，遵循系统触感设置。仅在设备明确不支持预置效果时降为 8/20/35 ms 单次反馈，平台异常不重试或改用提醒振动。`EntryAbility` 转发前后台状态，进入后台或引擎解绑时丢弃待触发效果，能力查询超过 70 ms 也直接丢弃当次反馈。`ohos.permission.VIBRATE` 为 normal / system_grant 权限，不需要用户授权弹窗。
+
+参考：[VIBRATE 权限](https://github.com/openharmony/docs/blob/master/zh-cn/application-dev/security/AccessToken/permissions-for-all.md#ohospermissionvibrate)、[系统对 touch 振动开关的处理](https://github.com/openharmony/sensors_miscdevice/blob/3128a695dac2847a3f3d910917982e1677543e35/services/miscdevice_service/src/vibration_priority_manager.cpp#L935)。`test/native/haptics_native_test.cjs` 验证通道失败、降级、缓存、重叠及前后台取消；实际强度与手感仍取决于设备马达和系统设置。
+
 ## 构建隔离
 
 脚本把当前源码（包含未提交修改）同步到 `build/ohos_workspace`，仅在那里
@@ -246,8 +254,17 @@ Git 依赖进入构建。上述覆盖只影响鸿蒙副本。
 
 ### 桌面卡片与文件备份
 
-`FeedReminderFormAbility` 提供“喂养概览”2×4 ArkTS 卡片，跟随系统浅深色。
-卡片展示最近一餐的时间与奶量、指定日期的汇总、下一次提醒绝对时间；停止本轮提醒
+`FeedReminderFormAbility` 提供三种 ArkTS 卡片，跟随系统浅深色。
+按桌面宽×高，“喂养概览”4×2 展示完整概览，“最近一餐”2×2 展示最近一餐、
+下次提醒及记录入口，“下次喂奶”2×1 展示下次提醒的日期与时间，整张点击进入计时页。
+鸿蒙配置按行×列命名，分别为 `2*4`、`2*2`、`1*2`。三个独立页面显式选择
+共享组件的布局，不依赖系统是否将 Want 尺寸参数注入 LocalStorage。
+保留原 `FeedSummary` 卡片名称、入口与默认 `2*4` 尺寸，已添加的卡片继续使用原布局。
+2×1 卡片按实际剩余高度布局时间或状态，紧凑版上下留白为 6vp，避免折叠屏
+约 56vp 高的桌面单元裁切“已停止”和时间。已用原生 Previewer 验证正常与停止
+状态在 48/56/64/72vp、浅深色以及 424×153px、440dpi 的 20 个组合；真机已有
+卡片覆盖安装后正常时间完整显示。此项不代表系统大字体已验证。
+完整概览展示最近一餐的时间与奶量、指定日期的汇总、下一次提醒绝对时间；停止本轮提醒
 后明确显示已停止。0 mL 显示“未记录奶量”，不解释为实际未喝奶。点击摘要进入
 计时页，“记录喂奶”进入应用内确认面板，原生卡片不会直接创建记录。
 
@@ -258,7 +275,8 @@ App 独占摘要 Preferences，FormExtension 独占卡片实例 Preferences；�
 失败不影响喂养记录保存；更新请求按顺序处理，失败后相同摘要仍可重试。
 
 应用不运行时只会在系统允许的卡片生命周期回调中读取最近摘要，不运行后台秒级
-倒计时。页面固定显示统计日期、更新时间及快照时区，跨日后也不把旧汇总称为
+倒计时。完整概览固定显示统计日期、更新时间及快照时区；小尺寸保留显示时间的
+日期，更新时间可由无障碍说明读取，跨日后也不把旧汇总称为
 “今日”。定点刷新由系统调度，不能视作实时性保证；前台恢复及业务变化后会发布
 新的摘要。此投影不包含完整历史，卸载应用时由应用沙箱一起清除。
 
@@ -270,11 +288,12 @@ UTF-8 BOM，避免 MethodChannel 的字符串解码移除 BOM 后影响中文识
 
 新增 Dart 测试可用普通 Flutter 运行，但不能证明原生 ArkTS 编译或桌面渲染。
 另可使用 Node 24 执行 `node --test test/native/home_widget_native_test.cjs`，
-通过类型擦除加载实际非 UI ArkTS 控制流并注入内存平台替身。本轮 10 项通过，
-覆盖更新竞争、失败后重试、移除卡片、跨夏令时显示和启动入口；这不检查 ArkTS
+通过类型擦除加载实际非 UI ArkTS 控制流并注入内存平台替身。本轮 13 项通过，
+覆盖更新竞争、失败后重试、移除卡片、紧凑卡片空态及停止状态、跨日跨年、
+跨夏令时显示和启动入口；这不检查 ArkTS
 语法约束、系统 API 可用性、HAP 打包或设备行为。
 当前 Windows 环境已完成 API 26 的 ArkTS 编译及已签名 Release HAP 构建，
-并存测试包已安装并成功启动，设备截图已验证设置页渲染。后台代理提醒仍返回
+并存测试包已安装并成功启动，设备截图已验证设置页及 2×1、2×2 卡片渲染。后台代理提醒仍返回
 额度受限错误，配额与能力状态需要继续确认；以下项目仍需单独验证：
 
 - Debug HAP 构建，以及 API 17 与目标版本的卡片加载。
@@ -284,13 +303,17 @@ UTF-8 BOM，避免 MethodChannel 的字符串解码移除 BOM 后影响中文识
 - 文件保存/取消/覆盖、中文 CSV、损坏 UTF-8、10 MiB 边界及写入失败后的重试。
 
 API 依据：[FormExtensionAbility 生命周期](https://developer.huawei.com/consumer/en/doc/harmonyos-guides-V5/arkts-ui-widget-lifecycle-V5)、
+[卡片尺寸配置](https://github.com/openharmony/docs/blob/master/zh-cn/application-dev/form/arkts-ui-widget-configuration.md#配置文件字段说明)、
+[组件树共享 LocalStorage](https://github.com/openharmony/docs/blob/master/zh-cn/application-dev/ui/state-management/arkts-localstorage.md#概述)、
 [DocumentViewPicker](https://developer.huawei.com/consumer/en/doc/harmonyos-references/js-apis-file-picker)、
 [Preferences 单进程限制](https://github.com/openharmony/interface_sdk-js/blob/master/api/@ohos.data.preferences.d.ts)。
 
 普通 Flutter 的测试在项目根目录执行。新增的
 `test/harmony_notification_service_test.dart` 使用 Flutter-OH 的平台枚举检查
 时间戳、声音参数、初始化和错误传播；在普通 Flutter 下会明确跳过。
-本轮 Flutter-OH 主机测试已执行这些专项，合计 485 项通过、0 跳过；这仍不是
+2026-10-06 发布前复核：Flutter-OH analyze 无问题，主机测试 581 项通过、0 跳过，
+原生逻辑替身测试 28 项通过，隔离构建工具测试 15 项通过。修正了页面隐藏后异步
+保存结果补发触感，以及系统触感能力首次查询失败后不能恢复的问题。这仍不是
 手机上的原生通知投递或存储集成测试。
 原生存储可以沿用有独立测试键空间的集成测试：
 

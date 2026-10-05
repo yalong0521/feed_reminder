@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/feed_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/app_haptics.dart';
 import '../utils/constants.dart';
 import '../theme/app_typography.dart';
 import '../utils/time_utils.dart';
@@ -43,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int? _mealAmountOverride;
   bool _adjustingMeal = false;
   bool _choosingSnooze = false;
+  bool _stoppingAlert = false;
   final FocusNode _standbyFocus = FocusNode(debugLabel: 'Standby wake control');
   FocusNode? _focusBeforeStandby;
   LogicalKeyboardKey? _wakeKey;
@@ -191,13 +193,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _stopAlert() async {
+    final feed = context.read<FeedProvider>();
+    if (_stoppingAlert || feed.isStoppingAlert) return;
+    _stoppingAlert = true;
     _wake();
     try {
-      await context.read<FeedProvider>().stopAlert();
+      await feed.stopAlert();
+      if (mounted && widget.isActive) AppHaptics.success();
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.isActive) {
+        AppHaptics.warning();
         showAppNotice(context, '停止提醒未完成，请重试');
       }
+    } finally {
+      _stoppingAlert = false;
     }
   }
 
@@ -234,7 +243,10 @@ class _HomeScreenState extends State<HomeScreen> {
         defaultAmount: settings.defaultMilkAmountMl,
       );
       if (mounted && choice != null) {
+        final before = _mealAmountOverride ?? settings.defaultMilkAmountMl;
+        final after = choice.amount ?? settings.defaultMilkAmountMl;
         setState(() => _mealAmountOverride = choice.amount);
+        if (widget.isActive && before != after) AppHaptics.selection();
       }
     } finally {
       if (mounted) setState(() => _adjustingMeal = false);
@@ -250,8 +262,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final minutes = await showSnoozeReminderDialog(context);
       if (!mounted || minutes == null) return;
       await feed.snoozeAlert(minutes);
+      if (mounted && widget.isActive) AppHaptics.success();
     } catch (_) {
-      if (mounted) showAppNotice(context, '未能延后提醒，请确认当前提醒状态后重试。');
+      if (mounted && widget.isActive) {
+        AppHaptics.warning();
+        showAppNotice(context, '未能延后提醒，请确认当前提醒状态后重试。');
+      }
     } finally {
       if (mounted) setState(() => _choosingSnooze = false);
     }
@@ -301,6 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 excluding: _dimmed || _wakeKey != null,
                 child: LandscapeFeedPanel(
                   feed: feed,
+                  isActive: widget.isActive,
                   defaultMilkAmountMl:
                       _mealAmountOverride ?? settings.defaultMilkAmountMl,
                   recordingEnabled:

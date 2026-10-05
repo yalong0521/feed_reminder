@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_haptics.dart';
 import '../theme/app_typography.dart';
 import 'app_controls.dart';
 import 'app_message_dialog.dart';
@@ -58,8 +59,10 @@ class _MealAmountDialogState extends State<_MealAmountDialog> {
   }
 
   void _submit() {
+    if (_closing || ModalRoute.of(context)?.isCurrent != true) return;
     final error = MilkAmountField.validate(_controller.text);
     if (error != null) {
+      AppHaptics.warning();
       setState(() => _error = error);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _closing || _error == null) return;

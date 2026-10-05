@@ -23,11 +23,15 @@ export class WidgetViewData {
   ready: boolean = false;
   hasRecords: boolean = false;
   latestTime: string = '暂无记录';
+  latestDate: string = '';
+  latestClock: string = '暂无记录';
   latestAmount: string = '记录第一餐';
   summaryDate: string = '当日汇总';
   totalAmount: string = '—';
   feedCount: string = '—';
   nextReminder: string = '打开奶点记后显示记录';
+  compactReminderLabel: string = '奶点记';
+  compactReminderValue: string = '打开应用';
   updatedAt: string = '数据仅在本机保存';
 }
 
@@ -118,6 +122,8 @@ export class WidgetStore {
     if (snapshot.latestTimeMs !== null) {
       data.latestTime = WidgetStore.time(snapshot.latestTimeMs,
         snapshot.latestTimeZoneOffsetMinutes ?? snapshot.zoneOffsetMinutes);
+      data.latestDate = data.latestTime.substring(0, 5);
+      data.latestClock = data.latestTime.substring(6);
       data.latestAmount = snapshot.latestMilkAmountMl === 0 ? '未记录奶量' :
         snapshot.latestMilkAmountMl.toString() + ' mL';
     }
@@ -126,6 +132,20 @@ export class WidgetStore {
         snapshot.nextFeedTimeMs === null ? '暂无下次提醒' :
           '下次 ' + WidgetStore.time(snapshot.nextFeedTimeMs,
             snapshot.nextFeedTimeZoneOffsetMinutes ?? snapshot.zoneOffsetMinutes);
+    if (!data.hasRecords) {
+      data.compactReminderValue = '暂无记录';
+    } else if (snapshot.reminderAcknowledged) {
+      data.compactReminderLabel = '本次提醒';
+      data.compactReminderValue = '已停止';
+    } else if (snapshot.nextFeedTimeMs === null) {
+      data.compactReminderLabel = '下次喂奶';
+      data.compactReminderValue = '暂无提醒';
+    } else {
+      const nextTime = WidgetStore.time(snapshot.nextFeedTimeMs,
+        snapshot.nextFeedTimeZoneOffsetMinutes ?? snapshot.zoneOffsetMinutes);
+      data.compactReminderLabel = '下次喂奶 · ' + nextTime.substring(0, 5);
+      data.compactReminderValue = nextTime.substring(6);
+    }
     const offset = snapshot.zoneOffsetMinutes;
     const zone = 'UTC' + (offset >= 0 ? '+' : '-') +
       WidgetStore.pad(Math.floor(Math.abs(offset) / 60)) + ':' + WidgetStore.pad(Math.abs(offset) % 60);

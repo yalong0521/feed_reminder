@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/feed_record.dart';
 import '../providers/feed_provider.dart';
+import '../services/app_haptics.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 import '../utils/time_utils.dart';
@@ -25,7 +26,13 @@ typedef _HistorySnapshot = ({
 });
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key, this.todayFilterRequest = 0});
+  const HistoryScreen({
+    super.key,
+    this.todayFilterRequest = 0,
+    this.isActive = true,
+  });
+
+  final bool isActive;
 
   /// A new request opens today's records without resetting ordinary tab visits.
   final int todayFilterRequest;
@@ -137,8 +144,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
       if (index < 0) return;
       await provider.deleteFeedRecord(index);
+      if (mounted &&
+          widget.isActive &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        AppHaptics.success();
+      }
     } catch (_) {
-      if (mounted) showAppNotice(context, '删除失败，请重试');
+      if (mounted &&
+          widget.isActive &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        AppHaptics.warning();
+        showAppNotice(context, '删除失败，请重试');
+      }
     } finally {
       _confirmingDelete = false;
     }

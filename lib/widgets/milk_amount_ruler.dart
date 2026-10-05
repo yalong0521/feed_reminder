@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/app_haptics.dart';
 import '../theme/app_typography.dart';
 import '../utils/constants.dart';
 
@@ -50,6 +51,7 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
   bool _focused = false;
   bool _writingFromRuler = false;
   late String _observedText;
+  int? _dragTick;
 
   static bool _valid(int? value) =>
       value != null && value >= 0 && value <= 2000;
@@ -136,7 +138,35 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
   void _step(int delta) {
     if (!widget.enabled) return;
     final value = (_position + delta).clamp(0, _maximum);
-    if (value != widget.value) widget.onChanged(value);
+    if (value != widget.value) {
+      widget.onChanged(value);
+      AppHaptics.selection();
+    }
+  }
+
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.depth != 0 || !widget.enabled) return false;
+    final tick =
+        (notification.metrics.pixels / _pixelsPerMl).round().clamp(
+          0,
+          _maximum,
+        ) ~/
+        10;
+    if (notification is ScrollStartNotification) {
+      _dragTick = notification.dragDetails == null ? null : tick;
+    } else if (notification is ScrollUpdateNotification) {
+      // Finger-driven 10mL detents only. Text edits, alignment jumps and
+      // ballistic scrolling after release must remain silent.
+      if (notification.dragDetails != null &&
+          _dragTick != null &&
+          tick != _dragTick) {
+        AppHaptics.selection();
+      }
+      _dragTick = notification.dragDetails == null ? null : tick;
+    } else if (notification is ScrollEndNotification) {
+      _dragTick = null;
+    }
+    return false;
   }
 
   @override
@@ -218,33 +248,40 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
                       child: LayoutBuilder(
                         builder: (context, constraints) => Stack(
                           children: [
-                            ScrollConfiguration(
-                              behavior: ScrollConfiguration.of(context)
-                                  .copyWith(
-                                    scrollbars: false,
-                                    overscroll: false,
-                                    dragDevices: {...PointerDeviceKind.values},
+                            NotificationListener<ScrollNotification>(
+                              onNotification: _onScroll,
+                              child: ScrollConfiguration(
+                                behavior: ScrollConfiguration.of(context)
+                                    .copyWith(
+                                      scrollbars: false,
+                                      overscroll: false,
+                                      dragDevices: {
+                                        ...PointerDeviceKind.values,
+                                      },
+                                    ),
+                                child: SingleChildScrollView(
+                                  key: const ValueKey(
+                                    'milk-amount-ruler-scroll',
                                   ),
-                              child: SingleChildScrollView(
-                                key: const ValueKey('milk-amount-ruler-scroll'),
-                                controller: _scroll,
-                                scrollDirection: Axis.horizontal,
-                                physics: widget.enabled
-                                    ? const ClampingScrollPhysics()
-                                    : const NeverScrollableScrollPhysics(),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: constraints.maxWidth / 2,
-                                ),
-                                child: CustomPaint(
-                                  size: Size(_maximum * _pixelsPerMl, height),
-                                  painter: _RulerPainter(
-                                    maximum: _maximum,
-                                    pixelsPerMl: _pixelsPerMl,
-                                    scroll: _scroll,
-                                    viewportWidth: constraints.maxWidth,
-                                    color: colors.textSecondary,
-                                    labelStyle: labelStyle,
-                                    textScaler: scaler,
+                                  controller: _scroll,
+                                  scrollDirection: Axis.horizontal,
+                                  physics: widget.enabled
+                                      ? const ClampingScrollPhysics()
+                                      : const NeverScrollableScrollPhysics(),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: constraints.maxWidth / 2,
+                                  ),
+                                  child: CustomPaint(
+                                    size: Size(_maximum * _pixelsPerMl, height),
+                                    painter: _RulerPainter(
+                                      maximum: _maximum,
+                                      pixelsPerMl: _pixelsPerMl,
+                                      scroll: _scroll,
+                                      viewportWidth: constraints.maxWidth,
+                                      color: colors.textSecondary,
+                                      labelStyle: labelStyle,
+                                      textScaler: scaler,
+                                    ),
                                   ),
                                 ),
                               ),
