@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,8 +38,9 @@ class MilkAmountRuler extends StatefulWidget {
 
 class _MilkAmountRulerState extends State<MilkAmountRuler> {
   static const _pixelsPerMl = 2.0;
+  // Input and gestures share a stable range, independent of previous edits.
+  static const _maximum = 2000;
   late int _position = _valid(widget.value) ? widget.value! : 0;
-  late int _maximum = _expandedMaximum(_position);
   late final _scroll = ScrollController(
     initialScrollOffset: _position * _pixelsPerMl,
     keepScrollOffset: false,
@@ -55,8 +54,6 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
 
   static bool _valid(int? value) =>
       value != null && value >= 0 && value <= 2000;
-  static int _expandedMaximum(int value) =>
-      math.max(360, ((value / 60).ceil() * 60).clamp(0, 2000));
 
   @override
   void initState() {
@@ -76,7 +73,6 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
       _observedText = widget.controller.text;
       if (_valid(widget.value)) {
         _position = widget.value!;
-        _maximum = math.max(_maximum, _expandedMaximum(_position));
       }
       _alignToInput();
     } else if (oldWidget.enabled && !widget.enabled) {
@@ -95,7 +91,6 @@ class _MilkAmountRulerState extends State<MilkAmountRuler> {
     setState(() {
       if (_valid(widget.value)) {
         _position = widget.value!;
-        _maximum = math.max(_maximum, _expandedMaximum(_position));
       }
     });
   }

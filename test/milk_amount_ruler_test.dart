@@ -64,6 +64,8 @@ void main() {
     addTearDown(controller.dispose);
     await tester.pumpWidget(_fieldApp(controller));
     await tester.pumpAndSettle();
+    final extent = _rulerPosition(tester).maxScrollExtent;
+    expect(find.text('0–2000 mL'), findsOneWidget);
 
     for (final value in [137, 361, 1999, 2000, 93]) {
       await tester.enterText(_input, '$value');
@@ -71,6 +73,11 @@ void main() {
       expect(controller.text, '$value');
       expect(_rulerValue(tester), value);
       expect(_rulerPosition(tester).outOfRange, isFalse);
+      expect(_rulerPosition(tester).maxScrollExtent, extent);
+      expect(find.text('0–2000 mL'), findsOneWidget);
+      if (value == 2000) {
+        expect(_rulerPosition(tester).pixels, extent);
+      }
     }
     expect(tester.takeException(), isNull);
   });
@@ -118,7 +125,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('ruler respects zero, default 360 and expanded 2000 boundaries', (
+  testWidgets('ruler passes 360 without expansion and stops at zero and 2000', (
     tester,
   ) async {
     final controller = TextEditingController(text: '0');
@@ -131,7 +138,8 @@ void main() {
     await tester.enterText(_input, '360');
     await tester.pumpAndSettle();
     await _dragRuler(tester, -160);
-    expect(controller.text, '360');
+    expect(int.parse(controller.text), greaterThan(360));
+    expect(_rulerValue(tester), int.parse(controller.text));
 
     await tester.enterText(_input, '2000');
     await tester.pumpAndSettle();
@@ -322,6 +330,19 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(controller.text, '137');
+
+        controller.text = '360';
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(slider).getSemanticsData().increasedValue,
+          '370 毫升',
+        );
+        owner.performAction(
+          tester.getSemantics(slider).id,
+          ui.SemanticsAction.increase,
+        );
+        await tester.pumpAndSettle();
+        expect(controller.text, '370');
 
         controller.text = '0';
         await tester.pumpAndSettle();
