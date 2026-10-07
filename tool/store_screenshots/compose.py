@@ -30,8 +30,8 @@ def text(draw, xy, value, font, color=BODY):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=ROOT / 'build/store-assets-1.1.0-5/raw')
-    parser.add_argument('--output', type=Path, default=ROOT / 'build/store-assets-1.1.0-5/posters')
+    parser.add_argument('--source', type=Path, default=ROOT / 'build/store-assets-1.1.0-6/raw')
+    parser.add_argument('--output', type=Path, default=ROOT / 'build/store-assets-1.1.0-6/posters')
     parser.add_argument('--fonts', type=Path, default=Path('C:/Windows/Fonts'))
     args = parser.parse_args()
     spec = json.loads(Path(__file__).with_name('listing.json').read_text(encoding='utf-8'))
@@ -127,7 +127,8 @@ def main():
         contact.paste(thumb, ((i % 5) * 216, (i // 5) * 384))
     contact.save(args.output / 'contact-sheet.jpg', quality=95)
     cards = '\n'.join(f'<figure><img src="{html.escape(e["file"])}"><figcaption>{i+1:02d} · {html.escape(e["title"])}</figcaption></figure>' for i,e in enumerate(entries))
-    (args.output / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>奶点记 1.1.0 截图审查</title><style>body{margin:32px;background:#ede8df;font:16px "Microsoft YaHei",sans-serif;color:#4d3a2c}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:24px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:12px 0}h1{font-size:24px}</style><h1>奶点记 1.1.0（5）· 应用介绍截图</h1><p>1080×1920 · 应用区域 864×1536 · 统一位置 (108,336) · 统一圆角 52px · 虚构演示数据</p><main>'+cards+'</main></html>', encoding='utf-8')
+    version_label = html.escape(f'{spec["versionName"]}（{spec["versionCode"]}）')
+    (args.output / 'index.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>奶点记 1.1.0 截图审查</title><style>body{margin:32px;background:#ede8df;font:16px "Microsoft YaHei",sans-serif;color:#4d3a2c}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:24px}figure{margin:0}img{display:block;width:100%;height:auto}figcaption{padding:12px 0}h1{font-size:24px}</style><h1>奶点记 '+version_label+' · 应用介绍截图</h1><p>1080×1920 · 应用区域 864×1536 · 统一位置 (108,336) · 统一圆角 52px · 虚构演示数据</p><main>'+cards+'</main></html>', encoding='utf-8')
     print(json.dumps({'count': len(entries), 'output': str(args.output), 'allViewportsIdentical': True}, ensure_ascii=False))
 
 

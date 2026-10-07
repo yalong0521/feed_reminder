@@ -1,6 +1,6 @@
 param(
     [string]$Flutter = 'flutter',
-    [string]$OutputDirectory = 'build/store-assets-1.1.0-5/app',
+    [string]$OutputDirectory = 'build/store-assets-1.1.0-6/app',
     [string]$FontDirectory = (Join-Path $env:WINDIR 'Fonts')
 )
 $ErrorActionPreference = 'Stop'

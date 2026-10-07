@@ -11,7 +11,7 @@ Use the ordinary Flutter SDK and its existing package resolution:
 ```powershell
 ./tool/store_screenshots/build.ps1 -Flutter flutter
 # A full flutter.bat path is also accepted.
-python -m http.server 8765 --bind 127.0.0.1 --directory build/store-assets-1.1.0-5/app
+python -m http.server 8765 --bind 127.0.0.1 --directory build/store-assets-1.1.0-6/app
 ```
 
 `-OutputDirectory` and `-FontDirectory` override the output and Windows fonts
@@ -45,7 +45,7 @@ do not resize individual screens to fit longer content.
 - `?theme=dark`: optional dark preview; the actual settings control also works.
 - `?state=overdue&theme=dark`: both options are supported.
 
-Save raw captures in `build/store-assets-1.1.0-5/raw/`. Poster layout is separate:
+Save raw captures in `build/store-assets-1.1.0-6/raw/`. Poster layout is separate:
 all raw frames must share the same size and origin and preserve actual app pixels.
 
 ## Deterministic fixture and fonts
