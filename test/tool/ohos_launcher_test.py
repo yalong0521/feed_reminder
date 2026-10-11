@@ -207,6 +207,18 @@ class LauncherTest(unittest.TestCase):
                 self.assertNotIn("OS", environment)
                 self.assertNotIn("GIT_CONFIG_COUNT", environment)
 
+    def test_build_arguments_fix_store_builds_to_arm64(self):
+        self.assertEqual(
+            launcher.flutter_arguments("build", ["hap", "--release"]),
+            ["hap", "--release", "--target-platform=ohos-arm64"],
+        )
+        self.assertEqual(
+            launcher.flutter_arguments("analyze", ["--suggestions"]),
+            ["--suggestions"],
+        )
+        with self.assertRaisesRegex(RuntimeError, "fixes target-platform"):
+            launcher.flutter_arguments("build", ["hap", "--target-platform=ohos-x64"])
+
     @unittest.skipUnless(os.name == "nt", "Runs a Windows batch expansion regression")
     def test_windows_subprocess_enables_deveco_batch_delayed_expansion(self):
         sdk = self.root.parent / "Flutter OH"

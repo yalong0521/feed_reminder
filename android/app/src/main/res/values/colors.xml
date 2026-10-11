@@ -3,4 +3,9 @@
     <color name="app_background">#FAF6EE</color>
     <color name="launch_brand_primary">#AD593C</color>
     <color name="launch_brand_secondary">#706257</color>
+    <color name="widget_background">#FAF6EE</color>
+    <color name="widget_primary">#AD593C</color>
+    <color name="widget_text">#3F3833</color>
+    <color name="widget_secondary">#706257</color>
+    <color name="widget_on_primary">#FFFFFF</color>
 </resources>

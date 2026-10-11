@@ -24,8 +24,13 @@ tool/ohos.sh analyze
 tool/ohos.sh test
 tool/ohos.sh build hap --debug --no-codesign
 tool/ohos.sh build hap --release --no-codesign
+tool/ohos.sh build app --release
 tool/ohos.sh devices
 ```
+
+构建入口会固定传入 `--target-platform=ohos-arm64`，正式上架包只生成 ARM64
+架构，不包含 `x86_64`。不要在入口命令中再传 `--target-platform`；如果需要
+其他架构，应在独立的测试工程中构建，避免误上传到 AppGallery Connect。
 
 Windows 在 PowerShell 中直接调用同一个 Python 入口，无需 Bash 或 rsync：
 
@@ -34,7 +39,7 @@ python tool/ohos/run.py prepare
 python tool/ohos/run.py pub get
 python tool/ohos/run.py analyze
 python tool/ohos/run.py test
-python tool/ohos/run.py build hap --release --no-codesign
+python tool/ohos/run.py build app --release --no-codesign
 python tool/ohos/run.py devices
 ```
 
@@ -74,11 +79,11 @@ python -m unittest discover -s test/tool -p '*_test.py' -v
 卸载已安装的旧版，再尝试重新安装。因此不要对这类设备使用 `flutter run`、
 `tool/ohos.sh run` 或 `python tool/ohos/run.py run`。
 
-签名配置完成后，先构建已签名的 Release 包，再单独使用 `hdc install -r`
-覆盖安装；macOS 构建命令为 `tool/ohos.sh build hap --release`，Windows 示例：
+签名配置完成后，先用 `build app` 构建要上传的已签名 Release 包，再单独使用 `hdc install -r`
+覆盖安装；macOS 构建命令为 `tool/ohos.sh build app --release`，Windows 示例：
 
 ```powershell
-python tool/ohos/run.py build hap --release
+python tool/ohos/run.py build app --release
 ```
 
 确认构建成功，并从本次输出中选取已签名的 Release HAP。以下路径和设备 ID

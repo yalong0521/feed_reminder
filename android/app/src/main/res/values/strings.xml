@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">奶点记汇总</string>
+    <string name="widget_recent_name">奶点记最近一餐</string>
+    <string name="widget_next_name">奶点记下次喂奶</string>
+</resources>

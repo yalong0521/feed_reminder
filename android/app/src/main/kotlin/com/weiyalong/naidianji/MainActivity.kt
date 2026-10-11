@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -13,6 +14,30 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var homeWidgetChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) {
+            receiveWidgetAction(intent, notifyFlutter = false)
+        } else {
+            // The system may restore the original Intent after process death.
+            // Restore only a request that Dart had not consumed when state was saved.
+            pendingWidgetAction = savedInstanceState.getString(PENDING_WIDGET_ACTION)
+        }
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(PENDING_WIDGET_ACTION, pendingWidgetAction)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveWidgetAction(intent, notifyFlutter = true)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "feed_reminder/system_ui")
@@ -76,5 +101,43 @@ class MainActivity : FlutterActivity() {
                     null,
                 )
             }
+
+        homeWidgetChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "feed_reminder/home_widget",
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "updateSnapshot" -> {
+                        val arguments = call.arguments as? Map<*, *>
+                        if (arguments == null) {
+                            result.error("invalid_arguments", "Expected a snapshot map.", null)
+                        } else if (FeedWidgetStore.save(applicationContext, arguments)) {
+                            result.success(null)
+                        } else {
+                            result.error("widget_update_failed", "桌面卡片暂时无法更新。", null)
+                        }
+                    }
+                    "getPendingAction" -> result.success(
+                        pendingWidgetAction.also { pendingWidgetAction = null },
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    private fun receiveWidgetAction(intent: Intent?, notifyFlutter: Boolean) {
+        val action = intent?.getStringExtra("feedWidgetAction")
+        if (action != "open_timer" && action != "record_feed") return
+        // Activity recreation must not replay a launch that Dart already consumed.
+        intent.removeExtra("feedWidgetAction")
+        pendingWidgetAction = action
+        if (notifyFlutter) homeWidgetChannel?.invokeMethod("widgetAction", null)
+    }
+
+    companion object {
+        private const val PENDING_WIDGET_ACTION = "pendingFeedWidgetAction"
+        private var pendingWidgetAction: String? = null
     }
 }

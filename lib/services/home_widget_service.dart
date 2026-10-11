@@ -10,7 +10,10 @@ class HomeWidgetService {
   HomeWidgetService({MethodChannel? channel, bool? supported})
     : _channel = channel ?? const MethodChannel('feed_reminder/home_widget'),
       isSupported =
-          supported ?? (!kIsWeb && defaultTargetPlatform.name == 'ohos') {
+          supported ??
+          (!kIsWeb &&
+              (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform.name == 'ohos')) {
     if (isSupported) _channel.setMethodCallHandler(_onNativeCall);
   }
 

@@ -17,7 +17,8 @@ CONFIG = ROOT / "tool" / "ohos"
 WORKSPACE = ROOT / "build" / "ohos_workspace"
 WINDOWS = os.name == "nt"
 SDK_REVISION = "adaf911c35c9136a7d18fc424d714c9ec7724e60"
-HELP = """Usage: tool/ohos.sh <prepare|analyze|test|build hap|run|doctor|devices|pub get> [options]
+OHOS_TARGET_PLATFORM = "ohos-arm64"
+HELP = """Usage: tool/ohos.sh <prepare|analyze|test|build hap|build app|run|doctor|devices|pub get> [options]
 
 All Flutter commands run inside build/ohos_workspace. Current lib/, assets/,
 test/, integration_test/ and ohos/ sources are copied there before each command.
@@ -25,7 +26,7 @@ Edit the original sources; generated workspace edits are overwritten.
 
 Examples:
   python tool/ohos/run.py prepare                    (Windows/PowerShell)
-  python tool/ohos/run.py build hap --release        (Windows/PowerShell)
+  python tool/ohos/run.py build app --release        (Windows/PowerShell)
   tool/ohos.sh prepare
   tool/ohos.sh analyze
   tool/ohos.sh test
@@ -314,6 +315,24 @@ def flutter_environment():
     return flutter, environment
 
 
+def flutter_arguments(command, arguments):
+    """Keep store HAP builds ARM64-only even when Hvigor defaults change."""
+    result = list(arguments)
+    if command != "build":
+        return result
+    if any(
+        argument == "--target-platform"
+        or argument.startswith("--target-platform=")
+        for argument in result
+    ):
+        raise RuntimeError(
+            "The OH build launcher fixes target-platform to ohos-arm64; "
+            "remove the explicit target-platform option"
+        )
+    result.append(f"--target-platform={OHOS_TARGET_PLATFORM}")
+    return result
+
+
 def main():
     arguments = sys.argv[1:]
     if not arguments or arguments[0] in ("-h", "--help", "help"):
@@ -324,8 +343,8 @@ def main():
         "prepare", "analyze", "test", "build", "run", "doctor", "devices", "pub",
     }:
         raise RuntimeError(f"Unsupported command: {command}\n{HELP}")
-    if command == "build" and arguments[1:2] != ["hap"]:
-        raise RuntimeError("This launcher builds the OH hap target only")
+    if command == "build" and arguments[1:2] not in (["hap"], ["app"]):
+        raise RuntimeError("This launcher builds the OH hap or app target only")
     if command == "pub" and arguments[1:2] != ["get"]:
         raise RuntimeError("Use pub get; dependency changes belong in tool/ohos")
     verify_workspace()
@@ -340,7 +359,9 @@ def main():
             return 0
         flutter, environment = flutter_environment()
         return subprocess.call(
-            [str(flutter), *arguments], cwd=WORKSPACE, env=environment
+            [str(flutter), *flutter_arguments(command, arguments)],
+            cwd=WORKSPACE,
+            env=environment,
         )
 
 
