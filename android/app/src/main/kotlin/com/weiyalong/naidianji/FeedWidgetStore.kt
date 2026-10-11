@@ -6,6 +6,10 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.util.SizeF
+import android.util.TypedValue
 import android.widget.RemoteViews
 import android.view.View
 import java.text.SimpleDateFormat
@@ -226,10 +230,103 @@ abstract class FeedWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val snapshot = FeedWidgetStore.read(context)
         ids.forEach { id ->
-            val views = RemoteViews(context.packageName, layout)
-            render(context, views, snapshot)
+            val options = manager.getAppWidgetOptions(id)
+            val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val sizes = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+                if (!sizes.isNullOrEmpty() && sizes.distinct().size <= 16 &&
+                    sizes.all { it.width > 0 && it.height > 0 }
+                ) {
+                    RemoteViews(sizes.associateWith { viewsForSize(context, snapshot, it.width, it.height) })
+                } else {
+                    orientationViews(context, snapshot, options)
+                }
+            } else {
+                orientationViews(context, snapshot, options)
+            }
             manager.updateAppWidget(id, views)
         }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context, manager: AppWidgetManager, id: Int, newOptions: Bundle,
+    ) {
+        onUpdate(context, manager, intArrayOf(id))
+    }
+
+    private fun orientationViews(context: Context, snapshot: FeedWidgetStore.Snapshot?, options: Bundle): RemoteViews {
+        val minWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 110).toFloat()
+        val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 50).toFloat()
+        val maxWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth.toInt()).toFloat()
+        val maxHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight.toInt()).toFloat()
+        return RemoteViews(
+            viewsForSize(context, snapshot, maxWidth, minHeight),
+            viewsForSize(context, snapshot, minWidth, maxHeight),
+        )
+    }
+
+    private fun viewsForSize(
+        context: Context, snapshot: FeedWidgetStore.Snapshot?, widthDp: Float, heightDp: Float,
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, layout)
+        render(context, views, snapshot)
+        // Cell dimensions differ between launchers and orientations. In particular,
+        // Android 12 targetCellHeight can provide less height than XML minHeight.
+        fun padding(id: Int, horizontal: Int, vertical: Int) {
+            val density = context.resources.displayMetrics.density
+            views.setViewPadding(id, (horizontal * density).toInt(), (vertical * density).toInt(),
+                (horizontal * density).toInt(), (vertical * density).toInt())
+        }
+        fun textSize(id: Int, size: Float) = views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, size)
+        // Hosts can reapply actions to an existing view with the same layout ID.
+        // Every size must therefore reset properties changed by smaller variants.
+        when (kind) {
+            1 -> {
+                padding(R.id.widget_compact_root, 12, 12)
+                textSize(R.id.widget_compact_label, 11f)
+                textSize(R.id.widget_compact_value, 26f)
+            }
+            2 -> {
+                padding(R.id.widget_square_root, 12, 12)
+                views.setViewVisibility(R.id.widget_square_title, View.VISIBLE)
+                textSize(R.id.widget_square_time, 28f)
+            }
+            3 -> {
+                padding(R.id.widget_wide_root, 12, 12)
+                views.setViewPadding(R.id.widget_wide_data, 0,
+                    (6 * context.resources.displayMetrics.density).toInt(), 0, 0)
+                views.setViewVisibility(R.id.widget_wide_updated, View.VISIBLE)
+                textSize(R.id.widget_wide_title, 14f)
+                textSize(R.id.widget_wide_date, 11f)
+                textSize(R.id.widget_wide_latest, 20f)
+                textSize(R.id.widget_wide_amount, 13f)
+            }
+        }
+        when (kind) {
+            1 -> if (heightDp < 70) {
+                padding(R.id.widget_compact_root, 8, 4)
+                textSize(R.id.widget_compact_label, 9f)
+                textSize(R.id.widget_compact_value, 20f)
+            }
+            2 -> if (heightDp < 180) {
+                padding(R.id.widget_square_root, 8, 8)
+                views.setViewVisibility(R.id.widget_square_title, View.GONE)
+                views.setViewVisibility(R.id.widget_square_next, View.GONE)
+                textSize(R.id.widget_square_time, 20f)
+            }
+            3 -> {
+                if (heightDp < 180) {
+                    padding(R.id.widget_wide_root, 8, 2)
+                    views.setViewPadding(R.id.widget_wide_data, 0, 0, 0, 0)
+                    views.setViewVisibility(R.id.widget_wide_updated, View.GONE)
+                    textSize(R.id.widget_wide_title, 11f)
+                    textSize(R.id.widget_wide_date, 9f)
+                    textSize(R.id.widget_wide_latest, 16f)
+                    textSize(R.id.widget_wide_amount, 11f)
+                }
+                if (widthDp < 320) textSize(R.id.widget_wide_latest, 16f)
+            }
+        }
+        return views
     }
 
     private fun render(context: Context, views: RemoteViews, snapshot: FeedWidgetStore.Snapshot?) {

@@ -12,6 +12,7 @@
         android:layout_height="wrap_content"
         android:textColor="@color/widget_secondary"
         android:textSize="11sp"
+        android:includeFontPadding="false"
         android:maxLines="1"
         android:ellipsize="end" />
     <TextView
@@ -20,6 +21,7 @@
         android:layout_height="wrap_content"
         android:textColor="@color/widget_primary"
         android:textSize="26sp"
+        android:includeFontPadding="false"
         android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end" />

@@ -79,11 +79,12 @@ python -m unittest discover -s test/tool -p '*_test.py' -v
 卸载已安装的旧版，再尝试重新安装。因此不要对这类设备使用 `flutter run`、
 `tool/ohos.sh run` 或 `python tool/ohos/run.py run`。
 
-签名配置完成后，先用 `build app` 构建要上传的已签名 Release 包，再单独使用 `hdc install -r`
-覆盖安装；macOS 构建命令为 `tool/ohos.sh build app --release`，Windows 示例：
+签名配置完成后，使用 `build app --release` 构建上传商店的 APP；其成功输出指向
+`.app` 文件。真机覆盖安装使用 HAP，先执行 `build hap --release`，再单独使用
+`hdc install -r`。macOS 安装包构建命令为 `tool/ohos.sh build hap --release`，Windows 示例：
 
 ```powershell
-python tool/ohos/run.py build app --release
+python tool/ohos/run.py build hap --release
 ```
 
 确认构建成功，并从本次输出中选取已签名的 Release HAP。以下路径和设备 ID
